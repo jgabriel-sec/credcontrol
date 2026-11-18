@@ -1,0 +1,13 @@
+# Dependências
+node_modules/
+
+# Segredos e Variáveis de Ambiente
+.env
+
+# Banco de Dados Local (Dados Sensíveis)
+*.sqlite
+*.sqlite3
+
+# Arquivos do Sistema Operacional
+.DS_Store
+Thumbs.db

@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CredControl | Gestão de Empréstimos</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+    <!-- ========================================== -->
+    <!-- BARREIRA DE AUTENTICAÇÃO (LOGIN)           -->
+    <!-- ========================================== -->
+    <div id="tela-login" class="login-wrapper">
+        <div class="login-card">
+            <div class="brand" style="justify-content: center; margin-bottom: 16px;">
+                <span class="brand-dot"></span>
+                <h2>CredControl</h2>
+            </div>
+            <h3 id="login-titulo" class="login-subtitle">Acesso Restrito</h3>
+            <p id="login-instrucao" class="login-desc">Digite sua senha de administrador para acessar o painel.</p>
+
+            <form id="form-login" class="login-form">
+                <div class="form-group">
+                    <label for="admin-usuario">Usuário Administrador</label>
+                    <input type="text" id="admin-usuario" value="admin" readonly style="background-color: #F1F5F9; color: #64748B;">
+                </div>
+
+                <div class="form-group">
+                    <label for="admin-senha">Senha de Acesso</label>
+                    <input type="password" id="admin-senha" placeholder="Mínimo 6 caracteres" minlength="6" required>
+                </div>
+
+                <p id="login-erro" class="login-error-msg" style="display: none;"></p>
+
+                <button type="submit" id="btn-login" class="btn-primary" style="width: 100%; margin-top: 8px;">Entrar no Sistema</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- SISTEMA PRINCIPAL (PROTEGIDO POR SESSÃO)   -->
+    <!-- ========================================== -->
+    <div id="sistema-principal" class="app-container" style="display: none;">
+        <!-- Barra Lateral -->
+        <aside class="sidebar">
+            <div class="brand">
+                <span class="brand-dot"></span>
+                <h2>CredControl</h2>
+            </div>
+            <nav class="menu">
+                <a href="#" class="menu-item active" data-tela="tela-emprestimos">Empréstimos</a>
+                <a href="#" class="menu-item" data-tela="tela-clientes">Clientes</a>
+                <a href="#" class="menu-item" data-tela="tela-planos">Planos e Taxas</a>
+            </nav>
+
+            <!-- Ferramentas de Backup e Logout no Rodapé -->
+            <div class="sidebar-footer">
+                <span class="backup-label">Segurança de Dados</span>
+                <button id="btn-exportar-backup" class="btn-secondary" style="margin-bottom: 8px;">Exportar Backup</button>
+                <label for="input-importar-backup" class="btn-secondary" style="display: block; text-align: center; margin-bottom: 12px; cursor: pointer;">
+                    Restaurar Backup
+                </label>
+                <input type="file" id="input-importar-backup" accept=".json" style="display: none;">
+                
+                <button id="btn-logout" class="btn-logout">Sair (Encerrar Sessão)</button>
+            </div>
+        </aside>
+
+        <!-- Área Principal -->
+        <main class="main-content">
+            
+            <!-- TELA 1: EMPRÉSTIMOS E CONTRATOS -->
+            <div id="tela-emprestimos" class="tela-secao">
+                <header class="topbar">
+                    <h1>Gestão de Empréstimos</h1>
+                    <span class="badge-admin">Sessão Autenticada</span>
+                </header>
+
+                <!-- Cards de Fluxo de Caixa -->
+                <section class="summary-grid">
+                    <div class="card">
+                        <span class="card-label">Capital Emprestado</span>
+                        <strong class="card-value" id="total-emprestado">R$ 0,00</strong>
+                    </div>
+                    <div class="card">
+                        <span class="card-label">Total Já Recebido</span>
+                        <strong class="card-value text-success" id="total-recebido">R$ 0,00</strong>
+                    </div>
+                    <div class="card">
+                        <span class="card-label">Saldo a Receber</span>
+                        <strong class="card-value" style="color: var(--accent);" id="total-receber">R$ 0,00</strong>
+                    </div>
+                </section>
+
+                <!-- Formulário de Novo Empréstimo -->
+                <section class="panel">
+                    <h2>Cadastrar Novo Contrato</h2>
+                    <form id="form-emprestimo" class="form-grid">
+                        <div class="form-group">
+                            <label for="contrato-cliente">Selecionar Cliente</label>
+                            <select id="contrato-cliente" required></select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="plano-nome">Plano Escolhido</label>
+                            <select id="plano-nome" required></select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="valor-emprestimo">Valor Solicitado (R$)</label>
+                            <input type="number" id="valor-emprestimo" min="50" step="0.01" placeholder="Ex: 1000.00" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="data-vencimento">Data do 1º Vencimento</label>
+                            <input type="date" id="data-vencimento" required>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn-primary">Gerar Empréstimo</button>
+                        </div>
+                    </form>
+                </section>
+
+                <!-- Tabela de Registros com Filtro -->
+                <section class="panel">
+                    <div class="panel-header-flex">
+                        <h2>Contratos Registrados</h2>
+                        <input type="text" id="busca-contrato" class="search-input" placeholder="Buscar por nome do cliente...">
+                    </div>
+                    
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Cliente</th>
+                                    <th>Plano</th>
+                                    <th>Parcela</th>
+                                    <th>Progresso</th>
+                                    <th>Próx. Vencimento</th>
+                                    <th>Status</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabela-contratos"></tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <!-- TELA 2: CADASTRO DE CLIENTES -->
+            <div id="tela-clientes" class="tela-secao" style="display: none;">
+                <header class="topbar">
+                    <h1>Base de Clientes</h1>
+                    <span class="badge-admin">Dados Protegidos</span>
+                </header>
+
+                <section class="panel">
+                    <h2>Cadastrar Novo Cliente</h2>
+                    <form id="form-cliente" class="form-grid">
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label for="cliente-nome">Nome Completo</label>
+                            <input type="text" id="cliente-nome" placeholder="Ex: Maria Oliveira Santos" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="cliente-cpf">CPF (apenas números)</label>
+                            <input type="text" id="cliente-cpf" maxlength="14" placeholder="Ex: 12345678900" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="cliente-whatsapp">WhatsApp (com DDD)</label>
+                            <input type="tel" id="cliente-whatsapp" maxlength="15" placeholder="Ex: 11999998888" required>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn-primary">Salvar Cliente</button>
+                        </div>
+                    </form>
+                </section>
+
+                <section class="panel">
+                    <h2>Clientes Cadastrados</h2>
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Nome</th>
+                                    <th>CPF (Mascarado)</th>
+                                    <th>WhatsApp</th>
+                                    <th>Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabela-clientes"></tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <!-- TELA 3: GERENCIADOR DE PLANOS E TAXAS -->
+            <div id="tela-planos" class="tela-secao" style="display: none;">
+                <header class="topbar">
+                    <h1>Planos e Taxas de Juros</h1>
+                    <span class="badge-admin">Configuração Comercial</span>
+                </header>
+
+                <section class="panel">
+                    <h2>Criar Novo Plano</h2>
+                    <form id="form-plano" class="form-grid">
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label for="novo-plano-nome">Nome do Plano</label>
+                            <input type="text" id="novo-plano-nome" placeholder="Ex: Plano Ouro 10x" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="novo-plano-taxa">Taxa de Juros Mensal (%)</label>
+                            <input type="number" id="novo-plano-taxa" min="0" max="100" step="0.01" placeholder="Ex: 2.5" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="novo-plano-parcelas">Quantidade de Parcelas</label>
+                            <input type="number" id="novo-plano-parcelas" min="1" max="120" step="1" placeholder="Ex: 10" required>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn-primary">Salvar Plano</button>
+                        </div>
+                    </form>
+                </section>
+
+                <section class="panel">
+                    <h2>Planos Disponíveis no Sistema</h2>
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Nome do Plano</th>
+                                    <th>Taxa Mensal</th>
+                                    <th>Parcelas</th>
+                                    <th>Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabela-planos"></tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+        </main>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>

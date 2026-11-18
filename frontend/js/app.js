@@ -1,0 +1,549 @@
+const API_URL = 'http://localhost:3000/api';
+
+// ==========================================
+// 0. CLIENTE HTTP SEGURO E AUTENTICAÇÃO JWT
+// ==========================================
+const telaLogin = document.getElementById('tela-login');
+const sistemaPrincipal = document.getElementById('sistema-principal');
+const formLogin = document.getElementById('form-login');
+const loginTitulo = document.getElementById('login-titulo');
+const loginInstrucao = document.getElementById('login-instrucao');
+const loginErro = document.getElementById('login-erro');
+const btnLogin = document.getElementById('btn-login');
+const btnLogout = document.getElementById('btn-logout');
+
+let modoSetupInicial = false;
+
+async function requisicaoAPI(endpoint, opcoes = {}) {
+    const token = sessionStorage.getItem('credcontrol_token');
+    const headers = {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...(opcoes.headers || {})
+    };
+
+    const resposta = await fetch(`${API_URL}${endpoint}`, {
+        ...opcoes,
+        headers
+    });
+
+    if ((resposta.status === 401 || resposta.status === 403) && !endpoint.startsWith('/auth')) {
+        sessionStorage.removeItem('credcontrol_token');
+        verificarEstadoAutenticacao();
+        throw new Error('Sessão expirada. Faça login novamente.');
+    }
+
+    const dados = await resposta.json();
+    if (!resposta.ok) {
+        throw new Error(dados.erro || 'Erro na comunicação com o servidor.');
+    }
+
+    return dados;
+}
+
+async function verificarEstadoAutenticacao() {
+    const token = sessionStorage.getItem('credcontrol_token');
+
+    if (token) {
+        telaLogin.style.display = 'none';
+        sistemaPrincipal.style.display = 'flex';
+        await carregarTodosOsDados();
+        return;
+    }
+
+    telaLogin.style.display = 'flex';
+    sistemaPrincipal.style.display = 'none';
+
+    try {
+        const statusSetup = await requisicaoAPI('/auth/verificar-setup');
+        modoSetupInicial = !statusSetup.configurado;
+
+        if (modoSetupInicial) {
+            loginTitulo.textContent = 'Configuração Inicial';
+            loginInstrucao.textContent = 'Crie sua senha de Administrador no servidor (mínimo 6 caracteres).';
+            btnLogin.textContent = 'Definir Senha e Entrar';
+        } else {
+            loginTitulo.textContent = 'Acesso Restrito';
+            loginInstrucao.textContent = 'Digite sua senha de administrador para acessar o painel.';
+            btnLogin.textContent = 'Entrar no Sistema';
+        }
+    } catch (erro) {
+        loginErro.textContent = 'Servidor offline! Verifique se o backend está rodando na porta 3000.';
+        loginErro.style.display = 'block';
+    }
+}
+
+formLogin.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+    loginErro.style.display = 'none';
+
+    const senhaDigitada = document.getElementById('admin-senha').value;
+    const rotaAuth = modoSetupInicial ? '/auth/setup' : '/auth/login';
+
+    try {
+        const resposta = await requisicaoAPI(rotaAuth, {
+            method: 'POST',
+            body: JSON.stringify({ senha: senhaDigitada })
+        });
+
+        sessionStorage.setItem('credcontrol_token', resposta.token);
+        formLogin.reset();
+        await verificarEstadoAutenticacao();
+    } catch (erro) {
+        loginErro.textContent = erro.message;
+        loginErro.style.display = 'block';
+    }
+});
+
+btnLogout.addEventListener('click', () => {
+    sessionStorage.removeItem('credcontrol_token');
+    verificarEstadoAutenticacao();
+});
+
+// ==========================================
+// 1. NAVEGAÇÃO ENTRE TELAS (SPA)
+// ==========================================
+const itensMenu = document.querySelectorAll('.menu-item[data-tela]');
+const secoesTela = document.querySelectorAll('.tela-secao');
+
+itensMenu.forEach((item) => {
+    item.addEventListener('click', (evento) => {
+        evento.preventDefault();
+        const telaAlvo = item.getAttribute('data-tela');
+
+        itensMenu.forEach(m => m.classList.remove('active'));
+        item.classList.add('active');
+
+        secoesTela.forEach(secao => {
+            secao.style.display = (secao.id === telaAlvo) ? 'block' : 'none';
+        });
+    });
+});
+
+// ==========================================
+// 2. ESTADO EM MEMÓRIA E FORMATAÇÃO
+// ==========================================
+let clientes = [];
+let planos = [];
+let contratos = [];
+
+async function carregarTodosOsDados() {
+    try {
+        const [listaClientes, listaPlanos, listaContratos] = await Promise.all([
+            requisicaoAPI('/clientes'),
+            requisicaoAPI('/planos'),
+            requisicaoAPI('/contratos')
+        ]);
+
+        clientes = listaClientes;
+        planos = listaPlanos;
+        contratos = listaContratos;
+
+        atualizarClientesNaTela();
+        atualizarPlanosNaTela();
+        atualizarContratosNaTela();
+    } catch (erro) {
+        console.error('Erro ao carregar dados do servidor:', erro.message);
+    }
+}
+
+function formatarMoeda(valor) {
+    return Number(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function mascararCPF(cpfLimpo) {
+    if (!cpfLimpo || cpfLimpo.length !== 11) return '***.***.***-**';
+    return `***.${cpfLimpo.substring(3, 6)}.${cpfLimpo.substring(6, 9)}-**`;
+}
+
+function formatarTelefone(tel) {
+    if (!tel) return '';
+    if (tel.length === 11) {
+        return `(${tel.substring(0, 2)}) ${tel.substring(2, 7)}-${tel.substring(7)}`;
+    }
+    return `(${tel.substring(0, 2)}) ${tel.substring(2, 6)}-${tel.substring(6)}`;
+}
+
+// Exportar Backup direto do Banco de Dados
+document.getElementById('btn-exportar-backup').addEventListener('click', () => {
+    const dadosBackup = {
+        sistema: 'CredControl',
+        origem: 'SQLite-API',
+        dataExportacao: new Date().toISOString(),
+        clientes,
+        planos,
+        contratos
+    };
+
+    const blob = new Blob([JSON.stringify(dadosBackup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `backup_credcontrol_${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+});
+
+document.getElementById('input-importar-backup').addEventListener('change', (evento) => {
+    alert('No modo Full Stack com banco SQLite, os dados já ficam salvos automaticamente no arquivo database.sqlite na pasta backend/.');
+    evento.target.value = '';
+});
+
+// ==========================================
+// 3. MÓDULO DE CLIENTES
+// ==========================================
+const formCliente = document.getElementById('form-cliente');
+const tabelaClientes = document.getElementById('tabela-clientes');
+const selectClienteContrato = document.getElementById('contrato-cliente');
+
+function atualizarClientesNaTela() {
+    tabelaClientes.innerHTML = '';
+    selectClienteContrato.innerHTML = '';
+
+    if (clientes.length === 0) {
+        const optionVazio = document.createElement('option');
+        optionVazio.value = '';
+        optionVazio.textContent = 'Nenhum cliente cadastrado (Vá na aba Clientes)';
+        selectClienteContrato.appendChild(optionVazio);
+    }
+
+    clientes.forEach((cliente) => {
+        const option = document.createElement('option');
+        option.value = cliente.id;
+        option.textContent = `${cliente.nome} (${mascararCPF(cliente.cpf)})`;
+        selectClienteContrato.appendChild(option);
+
+        const tr = document.createElement('tr');
+
+        const tdNome = document.createElement('td');
+        tdNome.textContent = cliente.nome;
+
+        const tdCpf = document.createElement('td');
+        tdCpf.textContent = mascararCPF(cliente.cpf);
+
+        const tdWhatsapp = document.createElement('td');
+        tdWhatsapp.textContent = formatarTelefone(cliente.whatsapp);
+
+        const tdAcao = document.createElement('td');
+        const btnExcluir = document.createElement('button');
+        btnExcluir.className = 'btn-danger';
+        btnExcluir.textContent = 'Excluir';
+        btnExcluir.onclick = () => excluirCliente(cliente.id);
+
+        tdAcao.appendChild(btnExcluir);
+        tr.appendChild(tdNome);
+        tr.appendChild(tdCpf);
+        tr.appendChild(tdWhatsapp);
+        tr.appendChild(tdAcao);
+
+        tabelaClientes.appendChild(tr);
+    });
+}
+
+async function excluirCliente(idCliente) {
+    if (!confirm('Deseja realmente excluir este cliente?')) return;
+    try {
+        await requisicaoAPI(`/clientes/${idCliente}`, { method: 'DELETE' });
+        await carregarTodosOsDados();
+    } catch (erro) {
+        alert(erro.message);
+    }
+}
+
+formCliente.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+
+    const nome = document.getElementById('cliente-nome').value.trim();
+    const cpf = document.getElementById('cliente-cpf').value.replace(/\D/g, '');
+    const whatsapp = document.getElementById('cliente-whatsapp').value.replace(/\D/g, '');
+
+    try {
+        await requisicaoAPI('/clientes', {
+            method: 'POST',
+            body: JSON.stringify({ nome, cpf, whatsapp })
+        });
+        formCliente.reset();
+        await carregarTodosOsDados();
+        alert('Cliente salvo no banco de dados com sucesso!');
+    } catch (erro) {
+        alert(erro.message);
+    }
+});
+
+// ==========================================
+// 4. MÓDULO DE PLANOS E TAXAS
+// ==========================================
+const formPlano = document.getElementById('form-plano');
+const tabelaPlanos = document.getElementById('tabela-planos');
+const selectPlanoEmprestimo = document.getElementById('plano-nome');
+
+function atualizarPlanosNaTela() {
+    tabelaPlanos.innerHTML = '';
+    selectPlanoEmprestimo.innerHTML = '';
+
+    planos.forEach((plano) => {
+        const option = document.createElement('option');
+        option.value = plano.id;
+        option.textContent = `${plano.nome} (${plano.taxa}% a.m. em ${plano.parcelas}x)`;
+        selectPlanoEmprestimo.appendChild(option);
+
+        const tr = document.createElement('tr');
+
+        const tdNome = document.createElement('td');
+        tdNome.textContent = plano.nome;
+
+        const tdTaxa = document.createElement('td');
+        tdTaxa.textContent = `${plano.taxa}% ao mês`;
+
+        const tdParcelas = document.createElement('td');
+        tdParcelas.textContent = `${plano.parcelas}x`;
+
+        const tdAcao = document.createElement('td');
+        const btnExcluir = document.createElement('button');
+        btnExcluir.className = 'btn-danger';
+        btnExcluir.textContent = 'Excluir';
+        btnExcluir.onclick = () => excluirPlano(plano.id);
+
+        tdAcao.appendChild(btnExcluir);
+        tr.appendChild(tdNome);
+        tr.appendChild(tdTaxa);
+        tr.appendChild(tdParcelas);
+        tr.appendChild(tdAcao);
+
+        tabelaPlanos.appendChild(tr);
+    });
+}
+
+async function excluirPlano(idPlano) {
+    if (!confirm('Tem certeza que deseja excluir este plano?')) return;
+    try {
+        await requisicaoAPI(`/planos/${idPlano}`, { method: 'DELETE' });
+        await carregarTodosOsDados();
+    } catch (erro) {
+        alert(erro.message);
+    }
+}
+
+formPlano.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+
+    const nome = document.getElementById('novo-plano-nome').value.trim();
+    const taxa = parseFloat(document.getElementById('novo-plano-taxa').value);
+    const parcelas = parseInt(document.getElementById('novo-plano-parcelas').value);
+
+    try {
+        await requisicaoAPI('/planos', {
+            method: 'POST',
+            body: JSON.stringify({ nome, taxa, parcelas })
+        });
+        formPlano.reset();
+        await carregarTodosOsDados();
+        alert('Plano salvo no banco de dados com sucesso!');
+    } catch (erro) {
+        alert(erro.message);
+    }
+});
+
+// ==========================================
+// 5. MÓDULO DE EMPRÉSTIMOS E VENCIMENTOS
+// ==========================================
+const formEmprestimo = document.getElementById('form-emprestimo');
+const tabelaContratos = document.getElementById('tabela-contratos');
+const inputBuscaContrato = document.getElementById('busca-contrato');
+const elTotalEmprestado = document.getElementById('total-emprestado');
+const elTotalRecebido = document.getElementById('total-recebido');
+const elTotalReceber = document.getElementById('total-receber');
+const inputDataVencimento = document.getElementById('data-vencimento');
+
+function definirDataPadraoFormulario() {
+    const hoje = new Date();
+    const ano = hoje.getFullYear();
+    const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+    const dia = String(hoje.getDate()).padStart(2, '0');
+    inputDataVencimento.value = `${ano}-${mes}-${dia}`;
+}
+definirDataPadraoFormulario();
+
+function calcularProximoVencimento(dataInicialISO, parcelasPagas) {
+    const [ano, mes, dia] = dataInicialISO.split('-').map(Number);
+    const data = new Date(ano, mes - 1 + parcelasPagas, dia);
+
+    if (data.getDate() !== dia) {
+        data.setDate(0);
+    }
+
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+
+    const atrasado = data < hoje;
+    const dataFormatada = data.toLocaleDateString('pt-BR');
+
+    return { dataFormatada, atrasado };
+}
+
+async function registrarPagamentoParcela(idContrato) {
+    try {
+        await requisicaoAPI(`/contratos/${idContrato}/pagar-parcela`, { method: 'PATCH' });
+        await carregarTodosOsDados();
+    } catch (erro) {
+        alert(erro.message);
+    }
+}
+
+function atualizarContratosNaTela() {
+    tabelaContratos.innerHTML = '';
+    const termoBusca = inputBuscaContrato.value.toLowerCase().trim();
+
+    let somaEmprestado = 0;
+    let somaRecebido = 0;
+    let somaAReceber = 0;
+
+    contratos.forEach((contrato) => {
+        const pagas = contrato.parcelasPagas || 0;
+        const valorJaPago = pagas * contrato.valorParcela;
+        const saldoRestante = Math.max(0, contrato.valorTotal - valorJaPago);
+
+        somaEmprestado += contrato.valorBase;
+        somaRecebido += valorJaPago;
+        somaAReceber += saldoRestante;
+
+        if (termoBusca && !contrato.cliente.toLowerCase().includes(termoBusca)) {
+            return;
+        }
+
+        const quitado = pagas >= contrato.parcelas;
+        const infoVencimento = calcularProximoVencimento(contrato.dataPrimeiroVencimento, pagas);
+        const estaAtrasado = !quitado && infoVencimento.atrasado;
+
+        const tr = document.createElement('tr');
+
+        const tdCliente = document.createElement('td');
+        tdCliente.textContent = contrato.cliente;
+
+        const tdPlano = document.createElement('td');
+        tdPlano.textContent = `${contrato.plano} (${contrato.taxa}% a.m.)`;
+
+        const tdParcela = document.createElement('td');
+        tdParcela.textContent = formatarMoeda(contrato.valorParcela);
+
+        const tdProgresso = document.createElement('td');
+        tdProgresso.textContent = `${pagas} de ${contrato.parcelas} pagas`;
+
+        const tdVencimento = document.createElement('td');
+        tdVencimento.textContent = quitado ? '—' : infoVencimento.dataFormatada;
+        if (estaAtrasado) {
+            tdVencimento.style.color = '#B91C1C';
+            tdVencimento.style.fontWeight = '600';
+        }
+
+        const tdStatus = document.createElement('td');
+        const badgeStatus = document.createElement('span');
+        if (quitado) {
+            badgeStatus.className = 'status-badge status-quitado';
+            badgeStatus.textContent = 'Quitado';
+        } else if (estaAtrasado) {
+            badgeStatus.className = 'status-badge status-atrasado';
+            badgeStatus.textContent = 'Atrasado';
+        } else {
+            badgeStatus.className = 'status-badge status-ativo';
+            badgeStatus.textContent = 'Em Dia';
+        }
+        tdStatus.appendChild(badgeStatus);
+
+        const tdAcao = document.createElement('td');
+        tdAcao.className = 'acoes-cell';
+
+        if (!quitado) {
+            const btnPagar = document.createElement('button');
+            btnPagar.className = 'btn-pagar';
+            btnPagar.textContent = '+1 Pago';
+            btnPagar.title = 'Registrar pagamento de 1 parcela';
+            btnPagar.onclick = () => registrarPagamentoParcela(contrato.id);
+            tdAcao.appendChild(btnPagar);
+        }
+
+        const linkZap = document.createElement('a');
+        linkZap.className = 'btn-whatsapp';
+        linkZap.target = '_blank';
+        linkZap.rel = 'noopener noreferrer';
+        linkZap.textContent = 'WhatsApp';
+
+        const textoStatusZap = quitado
+            ? 'QUITADO ✅'
+            : (estaAtrasado ? `ATRASADO ⚠️ (Venceu em ${infoVencimento.dataFormatada})` : `EM DIA (Próx. vencimento: ${infoVencimento.dataFormatada})`);
+
+        const mensagem = `Olá *${contrato.cliente}*, segue o resumo atualizado do seu contrato:\n\n` +
+                         `📋 *Plano:* ${contrato.plano} (${contrato.taxa}% a.m.)\n` +
+                         `💳 *Valor da Parcela:* ${formatarMoeda(contrato.valorParcela)}\n` +
+                         `📊 *Progresso:* ${pagas} de ${contrato.parcelas} parcelas pagas\n` +
+                         `💰 *Saldo Restante:* ${formatarMoeda(saldoRestante)}\n` +
+                         `📌 *Situação:* ${textoStatusZap}`;
+
+        linkZap.href = `https://wa.me/55${contrato.whatsapp}?text=${encodeURIComponent(mensagem)}`;
+
+        const btnExcluir = document.createElement('button');
+        btnExcluir.className = 'btn-danger';
+        btnExcluir.textContent = 'Excluir';
+        btnExcluir.onclick = () => excluirContrato(contrato.id);
+
+        tdAcao.appendChild(linkZap);
+        tdAcao.appendChild(btnExcluir);
+
+        tr.appendChild(tdCliente);
+        tr.appendChild(tdPlano);
+        tr.appendChild(tdParcela);
+        tr.appendChild(tdProgresso);
+        tr.appendChild(tdVencimento);
+        tr.appendChild(tdStatus);
+        tr.appendChild(tdAcao);
+
+        tabelaContratos.appendChild(tr);
+    });
+
+    elTotalEmprestado.textContent = formatarMoeda(somaEmprestado);
+    elTotalRecebido.textContent = formatarMoeda(somaRecebido);
+    elTotalReceber.textContent = formatarMoeda(somaAReceber);
+}
+
+inputBuscaContrato.addEventListener('input', atualizarContratosNaTela);
+
+async function excluirContrato(idContrato) {
+    if (!confirm('Deseja realmente excluir este contrato?')) return;
+    try {
+        await requisicaoAPI(`/contratos/${idContrato}`, { method: 'DELETE' });
+        await carregarTodosOsDados();
+    } catch (erro) {
+        alert(erro.message);
+    }
+}
+
+formEmprestimo.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+
+    const clienteId = parseInt(selectClienteContrato.value);
+    const planoId = parseInt(selectPlanoEmprestimo.value);
+    const valorBase = parseFloat(document.getElementById('valor-emprestimo').value);
+    const dataPrimeiroVencimento = inputDataVencimento.value;
+
+    if (!clienteId || !planoId || !dataPrimeiroVencimento) {
+        alert('Preencha todos os campos do contrato.');
+        return;
+    }
+
+    try {
+        await requisicaoAPI('/contratos', {
+            method: 'POST',
+            body: JSON.stringify({ clienteId, planoId, valorBase, dataPrimeiroVencimento })
+        });
+        formEmprestimo.reset();
+        definirDataPadraoFormulario();
+        await carregarTodosOsDados();
+    } catch (erro) {
+        alert(erro.message);
+    }
+});
+
+// ==========================================
+// 6. INICIALIZAÇÃO DO SISTEMA FULL STACK
+// ==========================================
+verificarEstadoAutenticacao();
