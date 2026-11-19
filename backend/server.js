@@ -228,6 +228,7 @@ app.get('/api/contratos', autenticarToken, (req, res) => {
             COALESCE(c.data_primeiro_vencimento, DATE(c.data_criacao)) AS dataPrimeiroVencimento,
             cli.id AS clienteId,
             cli.nome AS cliente,
+            cli.cpf AS cpf,
             cli.whatsapp AS whatsapp,
             p.nome AS plano,
             p.taxa AS taxa
@@ -275,7 +276,6 @@ app.post('/api/contratos', autenticarToken, (req, res) => {
     });
 });
 
-// Registrar pagamento com trilha de auditoria na tabela pagamentos
 app.patch('/api/contratos/:id/pagar-parcela', autenticarToken, (req, res) => {
     const id = parseInt(req.params.id);
     db.get('SELECT parcelas_pagas, parcelas_totais, valor_parcela FROM contratos WHERE id = ?', [id], (err, contrato) => {
@@ -310,7 +310,6 @@ app.patch('/api/contratos/:id/pagar-parcela', autenticarToken, (req, res) => {
     });
 });
 
-// Consultar histórico de pagamentos (recibos) de um contrato
 app.get('/api/contratos/:id/pagamentos', autenticarToken, (req, res) => {
     const id = parseInt(req.params.id);
     db.all(
@@ -323,7 +322,6 @@ app.get('/api/contratos/:id/pagamentos', autenticarToken, (req, res) => {
     );
 });
 
-// Estornar (desfazer) a última parcela paga
 app.delete('/api/contratos/:id/estornar-ultima', autenticarToken, (req, res) => {
     const id = parseInt(req.params.id);
     db.get('SELECT parcelas_pagas FROM contratos WHERE id = ?', [id], (err, contrato) => {

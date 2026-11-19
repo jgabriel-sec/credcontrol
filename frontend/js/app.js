@@ -507,6 +507,118 @@ btnEstornarUltima.addEventListener('click', async () => {
     }
 });
 
+// ==========================================
+// 5.2 GERADOR DE CONTRATO E DEMONSTRATIVO EM PDF
+// ==========================================
+function gerarContratoPDF(contrato) {
+    if (!window.jspdf) {
+        alert('Biblioteca de PDF ainda está carregando. Tente novamente em instantes.');
+        return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    const pagas = contrato.parcelasPagas || 0;
+    const valorJaPago = pagas * contrato.valorParcela;
+    const saldoRestante = Math.max(0, contrato.valorTotal - valorJaPago);
+    const quitado = pagas >= contrato.parcelas;
+    const infoVencimento = calcularProximoVencimento(contrato.dataPrimeiroVencimento, pagas);
+
+    const statusTexto = quitado
+        ? 'QUITADO'
+        : (infoVencimento.atrasado ? 'EM ATRASO' : 'EM DIA');
+
+    // Cabeçalho Institucional
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, 210, 32, 'F');
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.text('CREDCONTROL', 14, 15);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.text('CONTRATO DE MÚTUO FINANCEIRO E DEMONSTRATIVO DE PARCELAS', 14, 23);
+
+    doc.setFontSize(9);
+    doc.text(`Contrato Nº #CTR-${String(contrato.id).padStart(4, '0')}`, 160, 15);
+    doc.text(`Emissão: ${new Date().toLocaleDateString('pt-BR')}`, 160, 22);
+
+    // Seção 1: Identificação do Contratante (LGPD)
+    doc.setTextColor(15, 23, 42);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('1. IDENTIFICAÇÃO DO CONTRATANTE', 14, 45);
+
+    doc.setDrawColor(203, 213, 225);
+    doc.line(14, 48, 196, 48);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10.5);
+    doc.text(`Nome Completo: ${contrato.cliente}`, 14, 56);
+    doc.text(`CPF (Protegido - LGPD): ${mascararCPF(contrato.cpf)}`, 14, 63);
+    doc.text(`Telefone / WhatsApp: ${formatarTelefone(contrato.whatsapp)}`, 14, 70);
+
+    // Seção 2: Condições Financeiras do Empréstimo
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('2. CONDIÇÕES FINANCEIRAS CONTRATADAS', 14, 85);
+    doc.line(14, 88, 196, 88);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10.5);
+    doc.text(`Plano Selecionado: ${contrato.plano}`, 14, 96);
+    doc.text(`Taxa de Juros Aplicada: ${contrato.taxa}% ao mês`, 14, 103);
+    doc.text(`Capital Principal Liberado: ${formatarMoeda(contrato.valorBase)}`, 14, 110);
+    doc.text(`Valor Total do Contrato: ${formatarMoeda(contrato.valorTotal)}`, 14, 117);
+    doc.text(`Parcelamento: ${contrato.parcelas}x de ${formatarMoeda(contrato.valorParcela)}`, 14, 124);
+
+    // Seção 3: Situação Atual e Cronograma
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('3. DEMONSTRATIVO DE PAGAMENTO E SALDO', 14, 139);
+    doc.line(14, 142, 196, 142);
+
+    doc.setFillColor(248, 250, 252);
+    doc.rect(14, 147, 182, 42, 'F');
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10.5);
+    doc.text(`Parcelas Pagas até o momento: ${pagas} de ${contrato.parcelas} (${formatarMoeda(valorJaPago)})`, 18, 156);
+    doc.text(`Parcelas Restantes: ${Math.max(0, contrato.parcelas - pagas)} parcela(s)`, 18, 164);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Saldo Devedor Restante: ${formatarMoeda(saldoRestante)}`, 18, 172);
+    doc.text(`Data do Próximo Vencimento: ${quitado ? 'Contrato Quitado' : infoVencimento.dataFormatada}`, 18, 180);
+    doc.text(`Situação Atual: ${statusTexto}`, 130, 180);
+
+    // Seção 4: Cláusula Resumida e Assinaturas
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('4. TERMOS E CONCORDÂNCIA', 14, 204);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    const termo = 'O(A) CONTRATANTE reconhece a liquidez e certeza do valor acima discriminado, comprometendo-se a efetuar o pagamento das parcelas mensais nas datas de vencimento estipuladas neste instrumento.';
+    const linhasTermo = doc.splitTextToSize(termo, 182);
+    doc.text(linhasTermo, 14, 211);
+
+    doc.line(20, 250, 95, 250);
+    doc.text('CredControl - Administração', 35, 256);
+
+    doc.line(115, 250, 190, 250);
+    doc.text(`${contrato.cliente}`, 125, 256);
+
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Documento gerado eletronicamente pelo sistema CredControl.', 14, 282);
+
+    const nomeArquivo = `Contrato_${contrato.cliente.replace(/\s+/g, '_')}_CTR${contrato.id}.pdf`;
+    doc.save(nomeArquivo);
+}
+
 function atualizarContratosNaTela() {
     tabelaContratos.innerHTML = '';
     const termoBusca = inputBuscaContrato.value.toLowerCase().trim();
@@ -585,6 +697,12 @@ function atualizarContratosNaTela() {
         btnExtrato.title = 'Ver histórico de recibos e estornar';
         btnExtrato.onclick = () => abrirHistoricoPagamentos(contrato);
 
+        const btnPdf = document.createElement('button');
+        btnPdf.className = 'btn-pdf';
+        btnPdf.textContent = 'PDF';
+        btnPdf.title = 'Baixar Contrato / Demonstrativo em PDF';
+        btnPdf.onclick = () => gerarContratoPDF(contrato);
+
         const linkZap = document.createElement('a');
         linkZap.className = 'btn-whatsapp';
         linkZap.target = '_blank';
@@ -610,6 +728,7 @@ function atualizarContratosNaTela() {
         btnExcluir.onclick = () => excluirContrato(contrato.id);
 
         tdAcao.appendChild(btnExtrato);
+        tdAcao.appendChild(btnPdf);
         tdAcao.appendChild(linkZap);
         tdAcao.appendChild(btnExcluir);
 
@@ -655,13 +774,28 @@ formEmprestimo.addEventListener('submit', async (evento) => {
     }
 
     try {
-        await requisicaoAPI('/contratos', {
+        const resposta = await requisicaoAPI('/contratos', {
             method: 'POST',
             body: JSON.stringify({ clienteId, planoId, valorBase, dataPrimeiroVencimento })
         });
         formEmprestimo.reset();
         definirDataPadraoFormulario();
         await carregarTodosOsDados();
+
+        // Localiza o contrato recém-criado, baixa o PDF e abre o WhatsApp
+        const novoContrato = contratos.find(c => c.id === resposta.id);
+        if (novoContrato) {
+            gerarContratoPDF(novoContrato);
+
+            const infoVenc = calcularProximoVencimento(novoContrato.dataPrimeiroVencimento, 0);
+            const msgInicial = `Olá *${novoContrato.cliente}*, seu contrato *#CTR-${String(novoContrato.id).padStart(4, '0')}* foi gerado com sucesso!\n\n` +
+                               `📋 *Plano:* ${novoContrato.plano} (${novoContrato.taxa}% a.m.)\n` +
+                               `💳 *Parcelas:* ${novoContrato.parcelas}x de ${formatarMoeda(novoContrato.valorParcela)}\n` +
+                               `📅 *1º Vencimento:* ${infoVenc.dataFormatada}\n\n` +
+                               `Segue em anexo o documento oficial do seu contrato em PDF.`;
+
+            window.open(`https://wa.me/55${novoContrato.whatsapp}?text=${encodeURIComponent(msgInicial)}`, '_blank', 'noopener,noreferrer');
+        }
     } catch (erro) {
         alert(erro.message);
     }
