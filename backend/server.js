@@ -133,16 +133,21 @@ app.post('/api/clientes', autenticarToken, (req, res) => {
     const { nome, cpf, whatsapp } = req.body;
     const nomeLimpo = String(nome || '').trim();
     const cpfLimpo = String(cpf || '').replace(/\D/g, '');
-    const whatsappLimpo = String(whatsapp || '').replace(/\D/g, '');
+    let whatsappLimpo = String(whatsapp || '').replace(/\D/g, '');
+
+    // Remove o código do país (55) caso venha no formato +55(DDD)9XXXXXXXX
+    if (whatsappLimpo.startsWith('55') && (whatsappLimpo.length === 12 || whatsappLimpo.length === 13)) {
+        whatsappLimpo = whatsappLimpo.slice(2);
+    }
 
     if (!/^[A-Za-zÀ-ÖØ-öø-ÿ\s]{3,}$/.test(nomeLimpo)) {
         return res.status(400).json({ erro: 'Nome inválido no servidor.' });
     }
     if (cpfLimpo.length !== 11 || /^(\d)\1+$/.test(cpfLimpo)) {
-        return res.status(400).json({ erro: 'CPF inválido no servidor.' });
+        return res.status(400).json({ erro: 'CPF inválido. Deve conter exatamente 11 dígitos válidos.' });
     }
     if (whatsappLimpo.length < 10 || whatsappLimpo.length > 11) {
-        return res.status(400).json({ erro: 'WhatsApp inválido no servidor.' });
+        return res.status(400).json({ erro: 'WhatsApp inválido. Use o padrão +55(DDD)900000000.' });
     }
 
     db.run(

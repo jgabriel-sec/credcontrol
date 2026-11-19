@@ -151,17 +151,24 @@ function formatarMoeda(valor) {
     return Number(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+// Mascaramento LGPD no formato ***.000.000.**
 function mascararCPF(cpfLimpo) {
-    if (!cpfLimpo || cpfLimpo.length !== 11) return '***.***.***-**';
-    return `***.${cpfLimpo.substring(3, 6)}.${cpfLimpo.substring(6, 9)}-**`;
+    if (!cpfLimpo || cpfLimpo.length !== 11) return '***.***.***.**';
+    return `***.${cpfLimpo.substring(3, 6)}.${cpfLimpo.substring(6, 9)}.**`;
 }
 
+// Formatação padronizada +55(98)900000000
 function formatarTelefone(tel) {
     if (!tel) return '';
-    if (tel.length === 11) {
-        return `(${tel.substring(0, 2)}) ${tel.substring(2, 7)}-${tel.substring(7)}`;
-    }
-    return `(${tel.substring(0, 2)}) ${tel.substring(2, 6)}-${tel.substring(6)}`;
+    const apenasDigitos = String(tel).replace(/\D/g, '');
+    const semPais = (apenasDigitos.startsWith('55') && apenasDigitos.length >= 12)
+        ? apenasDigitos.slice(2)
+        : apenasDigitos;
+
+    if (semPais.length < 10) return tel;
+    const ddd = semPais.substring(0, 2);
+    const numero = semPais.substring(2);
+    return `+55(${ddd})${numero}`;
 }
 
 function formatarDataHoraSQLite(dataStr) {
@@ -196,11 +203,70 @@ document.getElementById('input-importar-backup').addEventListener('change', (eve
 });
 
 // ==========================================
-// 3. MÓDULO DE CLIENTES
+// 3. MÓDULO DE CLIENTES E MÁSCARAS DE ENTRADA
 // ==========================================
 const formCliente = document.getElementById('form-cliente');
 const tabelaClientes = document.getElementById('tabela-clientes');
 const selectClienteContrato = document.getElementById('contrato-cliente');
+const inputClienteCpf = document.getElementById('cliente-cpf');
+const inputClienteWhatsapp = document.getElementById('cliente-whatsapp');
+
+// Máscara automática do CPF no formato 000.000.000.00 (máx. 11 dígitos)
+inputClienteCpf.addEventListener('input', (evento) => {
+    let digitos = evento.target.value.replace(/\D/g, '').slice(0, 11);
+
+    if (digitos.length > 9) {
+        evento.target.value = `${digitos.slice(0, 3)}.${digitos.slice(3, 6)}.${digitos.slice(6, 9)}.${digitos.slice(9, 11)}`;
+    } else if (digitos.length > 6) {
+        evento.target.value = `${digitos.slice(0, 3)}.${digitos.slice(3, 6)}.${digitos.slice(6)}`;
+    } else if (digitos.length > 3) {
+        evento.target.value = `${digitos.slice(0, 3)}.${digitos.slice(3)}`;
+    } else {
+        evento.target.value = digitos;
+    }
+});
+
+// Máscara automática do WhatsApp no formato +55(98)900000000 (máx. 55 + 2 DDD + 9 número)
+function aplicarMascaraWhatsapp(valorBruto) {
+    let digitos = valorBruto.replace(/\D/g, '');
+
+    if (digitos.length === 0) return '';
+
+    // Garante que o prefixo do país seja sempre 55
+    if (!digitos.startsWith('55')) {
+        digitos = '55' + digitos;
+    }
+
+    // Limita a 13 dígitos totais: 55 (2) + DDD (2) + Celular (9)
+    digitos = digitos.slice(0, 13);
+
+    const ddd = digitos.slice(2, 4);
+    const numero = digitos.slice(4);
+
+    if (digitos.length <= 2) {
+        return '+55(';
+    } else if (digitos.length <= 4) {
+        return `+55(${ddd}`;
+    } else {
+        return `+55(${ddd})${numero}`;
+    }
+}
+
+inputClienteWhatsapp.addEventListener('focus', (evento) => {
+    if (!evento.target.value) {
+        evento.target.value = '+55(';
+    }
+});
+
+inputClienteWhatsapp.addEventListener('blur', (evento) => {
+    if (evento.target.value === '+55(' || evento.target.value === '+55') {
+        evento.target.value = '';
+    }
+});
+
+inputClienteWhatsapp.addEventListener('input', (evento) => {
+    evento.target.value = aplicarMascaraWhatsapp(evento.target.value);
+});
 
 function atualizarClientesNaTela() {
     tabelaClientes.innerHTML = '';
@@ -260,8 +326,24 @@ formCliente.addEventListener('submit', async (evento) => {
     evento.preventDefault();
 
     const nome = document.getElementById('cliente-nome').value.trim();
-    const cpf = document.getElementById('cliente-cpf').value.replace(/\D/g, '');
-    const whatsapp = document.getElementById('cliente-whatsapp').value.replace(/\D/g, '');
+    const cpf = inputClienteCpf.value.replace(/\D/g, '');
+    let whatsapp = inputClienteWhatsapp.value.replace(/\D/g, '');
+
+    if (cpf.length !== 11) {
+        alert('O CPF deve conter exatamente 11 dígitos (000.000.000.00).');
+        inputClienteCpf.focus();
+        return;
+    }
+
+    if (whatsapp.startsWith('55')) {
+        whatsapp = whatsapp.slice(2);
+    }
+
+    if (whatsapp.length < 10 || whatsapp.length > 11) {
+        alert('O WhatsApp deve seguir o padrão completo +55(DDD)900000000.');
+        inputClienteWhatsapp.focus();
+        return;
+    }
 
     try {
         await requisicaoAPI('/clientes', {
