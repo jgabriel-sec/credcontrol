@@ -151,6 +151,23 @@ function formatarMoeda(valor) {
     return Number(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+// Máscara monetária em tempo real (ex: digitar 110000 -> R$ 1.100,00)
+function aplicarMascaraMoedaInput(valorBruto) {
+    const apenasDigitos = String(valorBruto).replace(/\D/g, '');
+    if (!apenasDigitos) return '';
+    const valorNumerico = parseInt(apenasDigitos, 10) / 100;
+    return valorNumerico.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+// Converte string formatada (ex: "R$ 1.100,00") de volta para número float (1100)
+function converterMoedaParaNumero(textoMoeda) {
+    if (!textoMoeda) return NaN;
+    const limpo = String(textoMoeda)
+        .replace(/[R$\s.]/g, '')
+        .replace(',', '.');
+    return parseFloat(limpo);
+}
+
 function mascararCPF(cpfLimpo) {
     if (!cpfLimpo || cpfLimpo.length !== 11) return '***.***.***.**';
     return `***.${cpfLimpo.substring(3, 6)}.${cpfLimpo.substring(6, 9)}.**`;
@@ -359,12 +376,22 @@ const formPlano = document.getElementById('form-plano');
 const tabelaPlanos = document.getElementById('tabela-planos');
 const selectPlanoEmprestimo = document.getElementById('plano-nome');
 const inputValorEmprestimo = document.getElementById('valor-emprestimo');
+const inputNovoPlanoValor = document.getElementById('novo-plano-valor');
+
+// Aplica máscara monetária automática em ambos os campos de valor
+inputNovoPlanoValor.addEventListener('input', (evento) => {
+    evento.target.value = aplicarMascaraMoedaInput(evento.target.value);
+});
+
+inputValorEmprestimo.addEventListener('input', (evento) => {
+    evento.target.value = aplicarMascaraMoedaInput(evento.target.value);
+});
 
 function preencherValorDoPlanoSelecionado() {
     const planoId = parseInt(selectPlanoEmprestimo.value);
     const planoEncontrado = planos.find(p => p.id === planoId);
     if (planoEncontrado && planoEncontrado.valor > 0) {
-        inputValorEmprestimo.value = Number(planoEncontrado.valor).toFixed(2);
+        inputValorEmprestimo.value = formatarMoeda(planoEncontrado.valor);
     }
 }
 
@@ -430,9 +457,15 @@ formPlano.addEventListener('submit', async (evento) => {
     evento.preventDefault();
 
     const nome = document.getElementById('novo-plano-nome').value.trim();
-    const valor = parseFloat(document.getElementById('novo-plano-valor').value);
+    const valor = converterMoedaParaNumero(inputNovoPlanoValor.value);
     const taxa = parseFloat(document.getElementById('novo-plano-taxa').value);
     const parcelas = parseInt(document.getElementById('novo-plano-parcelas').value);
+
+    if (isNaN(valor) || valor < 0) {
+        alert('Informe um valor válido para o plano (Ex: R$ 1.100,00).');
+        inputNovoPlanoValor.focus();
+        return;
+    }
 
     try {
         await requisicaoAPI('/planos', {
@@ -926,11 +959,17 @@ formEmprestimo.addEventListener('submit', async (evento) => {
 
     const clienteId = parseInt(selectClienteContrato.value);
     const planoId = parseInt(selectPlanoEmprestimo.value);
-    const valorBase = parseFloat(document.getElementById('valor-emprestimo').value);
+    const valorBase = converterMoedaParaNumero(inputValorEmprestimo.value);
     const dataPrimeiroVencimento = inputDataVencimento.value;
 
     if (!clienteId || !planoId || !dataPrimeiroVencimento) {
         alert('Preencha todos os campos do contrato.');
+        return;
+    }
+
+    if (isNaN(valorBase) || valorBase < 50) {
+        alert('O valor mínimo do empréstimo é R$ 50,00.');
+        inputValorEmprestimo.focus();
         return;
     }
 
