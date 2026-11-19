@@ -34,6 +34,7 @@ db.serialize(() => {
         CREATE TABLE IF NOT EXISTS planos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nome TEXT NOT NULL,
+            valor REAL DEFAULT 0,
             taxa REAL NOT NULL,
             parcelas INTEGER NOT NULL
         )
@@ -56,7 +57,6 @@ db.serialize(() => {
         )
     `);
 
-    // Nova tabela de Auditoria Financeira (Histórico de Pagamentos)
     db.run(`
         CREATE TABLE IF NOT EXISTS pagamentos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,10 +68,11 @@ db.serialize(() => {
         )
     `);
 
-    // Migração segura da coluna de vencimento
+    // Migrações seguras para bancos já existentes
     db.run(`ALTER TABLE contratos ADD COLUMN data_primeiro_vencimento TEXT`, () => {});
+    db.run(`ALTER TABLE planos ADD COLUMN valor REAL DEFAULT 0`, () => {});
 
-    // Migração retroativa: garante histórico para parcelas pagas antes desta atualização
+    // Migração retroativa de pagamentos
     db.all('SELECT id, parcelas_pagas, valor_parcela FROM contratos WHERE parcelas_pagas > 0', (err, rows) => {
         if (!err && rows) {
             rows.forEach((c) => {
@@ -90,10 +91,10 @@ db.serialize(() => {
 
     db.get('SELECT COUNT(*) as total FROM planos', (err, row) => {
         if (!err && row.total === 0) {
-            const stmt = db.prepare('INSERT INTO planos (nome, taxa, parcelas) VALUES (?, ?, ?)');
-            stmt.run('Plano Flex 3x', 2.5, 3);
-            stmt.run('Plano Padrão 6x', 3.0, 6);
-            stmt.run('Plano Estendido 12x', 3.5, 12);
+            const stmt = db.prepare('INSERT INTO planos (nome, valor, taxa, parcelas) VALUES (?, ?, ?, ?)');
+            stmt.run('Plano Flex 3x', 500, 2.5, 3);
+            stmt.run('Plano Padrão 6x', 1000, 3.0, 6);
+            stmt.run('Plano Estendido 12x', 2000, 3.5, 12);
             stmt.finalize();
             console.log('Planos iniciais inseridos no banco de dados.');
         }

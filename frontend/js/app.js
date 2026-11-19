@@ -151,13 +151,11 @@ function formatarMoeda(valor) {
     return Number(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
-// Mascaramento LGPD no formato ***.000.000.**
 function mascararCPF(cpfLimpo) {
     if (!cpfLimpo || cpfLimpo.length !== 11) return '***.***.***.**';
     return `***.${cpfLimpo.substring(3, 6)}.${cpfLimpo.substring(6, 9)}.**`;
 }
 
-// Formatação padronizada +55(98)900000000
 function formatarTelefone(tel) {
     if (!tel) return '';
     const apenasDigitos = String(tel).replace(/\D/g, '');
@@ -211,7 +209,6 @@ const selectClienteContrato = document.getElementById('contrato-cliente');
 const inputClienteCpf = document.getElementById('cliente-cpf');
 const inputClienteWhatsapp = document.getElementById('cliente-whatsapp');
 
-// Máscara automática do CPF no formato 000.000.000.00 (máx. 11 dígitos)
 inputClienteCpf.addEventListener('input', (evento) => {
     let digitos = evento.target.value.replace(/\D/g, '').slice(0, 11);
 
@@ -226,18 +223,15 @@ inputClienteCpf.addEventListener('input', (evento) => {
     }
 });
 
-// Máscara automática do WhatsApp no formato +55(98)900000000 (máx. 55 + 2 DDD + 9 número)
 function aplicarMascaraWhatsapp(valorBruto) {
     let digitos = valorBruto.replace(/\D/g, '');
 
     if (digitos.length === 0) return '';
 
-    // Garante que o prefixo do país seja sempre 55
     if (!digitos.startsWith('55')) {
         digitos = '55' + digitos;
     }
 
-    // Limita a 13 dígitos totais: 55 (2) + DDD (2) + Celular (9)
     digitos = digitos.slice(0, 13);
 
     const ddd = digitos.slice(2, 4);
@@ -364,21 +358,38 @@ formCliente.addEventListener('submit', async (evento) => {
 const formPlano = document.getElementById('form-plano');
 const tabelaPlanos = document.getElementById('tabela-planos');
 const selectPlanoEmprestimo = document.getElementById('plano-nome');
+const inputValorEmprestimo = document.getElementById('valor-emprestimo');
+
+function preencherValorDoPlanoSelecionado() {
+    const planoId = parseInt(selectPlanoEmprestimo.value);
+    const planoEncontrado = planos.find(p => p.id === planoId);
+    if (planoEncontrado && planoEncontrado.valor > 0) {
+        inputValorEmprestimo.value = Number(planoEncontrado.valor).toFixed(2);
+    }
+}
+
+selectPlanoEmprestimo.addEventListener('change', preencherValorDoPlanoSelecionado);
 
 function atualizarPlanosNaTela() {
     tabelaPlanos.innerHTML = '';
     selectPlanoEmprestimo.innerHTML = '';
 
     planos.forEach((plano) => {
+        const valorPlano = Number(plano.valor || 0);
         const option = document.createElement('option');
         option.value = plano.id;
-        option.textContent = `${plano.nome} (${plano.taxa}% a.m. em ${plano.parcelas}x)`;
+        option.textContent = valorPlano > 0
+            ? `${plano.nome} — ${formatarMoeda(valorPlano)} (${plano.taxa}% a.m. em ${plano.parcelas}x)`
+            : `${plano.nome} (${plano.taxa}% a.m. em ${plano.parcelas}x)`;
         selectPlanoEmprestimo.appendChild(option);
 
         const tr = document.createElement('tr');
 
         const tdNome = document.createElement('td');
         tdNome.textContent = plano.nome;
+
+        const tdValor = document.createElement('td');
+        tdValor.textContent = valorPlano > 0 ? formatarMoeda(valorPlano) : 'Livre';
 
         const tdTaxa = document.createElement('td');
         tdTaxa.textContent = `${plano.taxa}% ao mês`;
@@ -394,12 +405,15 @@ function atualizarPlanosNaTela() {
 
         tdAcao.appendChild(btnExcluir);
         tr.appendChild(tdNome);
+        tr.appendChild(tdValor);
         tr.appendChild(tdTaxa);
         tr.appendChild(tdParcelas);
         tr.appendChild(tdAcao);
 
         tabelaPlanos.appendChild(tr);
     });
+
+    preencherValorDoPlanoSelecionado();
 }
 
 async function excluirPlano(idPlano) {
@@ -416,13 +430,14 @@ formPlano.addEventListener('submit', async (evento) => {
     evento.preventDefault();
 
     const nome = document.getElementById('novo-plano-nome').value.trim();
+    const valor = parseFloat(document.getElementById('novo-plano-valor').value);
     const taxa = parseFloat(document.getElementById('novo-plano-taxa').value);
     const parcelas = parseInt(document.getElementById('novo-plano-parcelas').value);
 
     try {
         await requisicaoAPI('/planos', {
             method: 'POST',
-            body: JSON.stringify({ nome, taxa, parcelas })
+            body: JSON.stringify({ nome, valor, taxa, parcelas })
         });
         formPlano.reset();
         await carregarTodosOsDados();
@@ -618,7 +633,6 @@ async function gerarContratoPDF(contrato) {
         ? 'QUITADO'
         : (infoVencimento.atrasado ? 'EM ATRASO' : 'EM DIA');
 
-    // Cabeçalho Institucional Compacto
     doc.setFillColor(15, 23, 42);
     doc.rect(0, 0, 210, 26, 'F');
 
@@ -635,7 +649,6 @@ async function gerarContratoPDF(contrato) {
     doc.text(`Contrato Nº #CTR-${String(contrato.id).padStart(4, '0')}`, 160, 12);
     doc.text(`Emissão: ${new Date().toLocaleDateString('pt-BR')}`, 160, 18);
 
-    // Seção 1: Identificação do Contratante (LGPD)
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10.5);
@@ -650,7 +663,6 @@ async function gerarContratoPDF(contrato) {
     doc.text(`CPF (Protegido - LGPD): ${mascararCPF(contrato.cpf)}`, 14, 48.5);
     doc.text(`Telefone / WhatsApp: ${formatarTelefone(contrato.whatsapp)}`, 115, 48.5);
 
-    // Seção 2: Condições Financeiras do Empréstimo
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10.5);
     doc.text('2. CONDIÇÕES FINANCEIRAS CONTRATADAS', 14, 58);
@@ -662,13 +674,11 @@ async function gerarContratoPDF(contrato) {
     doc.text(`Capital Liberado: ${formatarMoeda(contrato.valorBase)}`, 115, 66);
     doc.text(`Valor Total do Contrato: ${formatarMoeda(contrato.valorTotal)} (${contrato.parcelas}x de ${formatarMoeda(contrato.valorParcela)})`, 14, 71.5);
 
-    // Seção 3: Demonstrativo de Pagamento e Cronograma Discriminado
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10.5);
     doc.text('3. DEMONSTRATIVO DE PAGAMENTO E CRONOGRAMA DE PARCELAS', 14, 81);
     doc.line(14, 83, 196, 83);
 
-    // Resumo Consolidado
     doc.setFillColor(248, 250, 252);
     doc.rect(14, 86, 182, 21, 'F');
 
@@ -682,7 +692,6 @@ async function gerarContratoPDF(contrato) {
     doc.text(`Situação Atual: ${statusTexto}`, 125, 98);
     doc.text(`Próximo Vencimento: ${quitado ? 'Contrato Quitado' : infoVencimento.dataFormatada}`, 18, 104);
 
-    // Tabela Discriminada de Todas as Parcelas (Pagas e Restantes)
     let y = 115;
 
     doc.setFillColor(226, 232, 240);
@@ -736,7 +745,6 @@ async function gerarContratoPDF(contrato) {
         y += 5.5;
     }
 
-    // Garante que o bloco de Termos e Assinaturas fique sempre unido na mesma página
     if (y > 240) {
         doc.addPage();
         y = 20;
@@ -744,7 +752,6 @@ async function gerarContratoPDF(contrato) {
         y += 6;
     }
 
-    // Seção 4: Termos e Assinaturas
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
@@ -765,7 +772,6 @@ async function gerarContratoPDF(contrato) {
     doc.line(115, y, 190, y);
     doc.text(`${contrato.cliente}`, 125, y + 4.5);
 
-    // Rodapé
     doc.setFontSize(7.5);
     doc.setTextColor(100, 116, 139);
     doc.text('Documento gerado eletronicamente pelo sistema CredControl.', 14, 288);
@@ -935,6 +941,7 @@ formEmprestimo.addEventListener('submit', async (evento) => {
         });
         formEmprestimo.reset();
         definirDataPadraoFormulario();
+        preencherValorDoPlanoSelecionado();
         await carregarTodosOsDados();
 
         const novoContrato = contratos.find(c => c.id === resposta.id);

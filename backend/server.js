@@ -135,7 +135,6 @@ app.post('/api/clientes', autenticarToken, (req, res) => {
     const cpfLimpo = String(cpf || '').replace(/\D/g, '');
     let whatsappLimpo = String(whatsapp || '').replace(/\D/g, '');
 
-    // Remove o código do país (55) caso venha no formato +55(DDD)9XXXXXXXX
     if (whatsappLimpo.startsWith('55') && (whatsappLimpo.length === 12 || whatsappLimpo.length === 13)) {
         whatsappLimpo = whatsappLimpo.slice(2);
     }
@@ -186,21 +185,27 @@ app.get('/api/planos', autenticarToken, (req, res) => {
 });
 
 app.post('/api/planos', autenticarToken, (req, res) => {
-    const { nome, taxa, parcelas } = req.body;
+    const { nome, valor, taxa, parcelas } = req.body;
     const nomeLimpo = String(nome || '').trim();
+    const valorNum = parseFloat(valor);
     const taxaNum = parseFloat(taxa);
     const parcelasNum = parseInt(parcelas);
 
-    if (!/^[A-Za-zÀ-ÖØ-öø-ÿ0-9\s\-]{3,40}$/.test(nomeLimpo) || isNaN(taxaNum) || taxaNum < 0 || isNaN(parcelasNum) || parcelasNum < 1) {
+    if (
+        !/^[A-Za-zÀ-ÖØ-öø-ÿ0-9\s\-]{3,40}$/.test(nomeLimpo) ||
+        isNaN(valorNum) || valorNum < 0 ||
+        isNaN(taxaNum) || taxaNum < 0 ||
+        isNaN(parcelasNum) || parcelasNum < 1
+    ) {
         return res.status(400).json({ erro: 'Dados do plano inválidos.' });
     }
 
     db.run(
-        'INSERT INTO planos (nome, taxa, parcelas) VALUES (?, ?, ?)',
-        [nomeLimpo, taxaNum, parcelasNum],
+        'INSERT INTO planos (nome, valor, taxa, parcelas) VALUES (?, ?, ?, ?)',
+        [nomeLimpo, valorNum, taxaNum, parcelasNum],
         function(err) {
             if (err) return res.status(500).json({ erro: 'Erro ao salvar plano.' });
-            res.status(201).json({ id: this.lastID, nome: nomeLimpo, taxa: taxaNum, parcelas: parcelasNum });
+            res.status(201).json({ id: this.lastID, nome: nomeLimpo, valor: valorNum, taxa: taxaNum, parcelas: parcelasNum });
         }
     );
 });
