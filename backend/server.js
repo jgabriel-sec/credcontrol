@@ -16,7 +16,6 @@ const JWT_SECRET = process.env.JWT_SECRET;
 // ==========================================
 app.use(helmet());
 
-// Lista branca de origens permitidas (bloqueia sites externos maliciosos)
 const origensPermitidas = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
@@ -26,7 +25,6 @@ const origensPermitidas = [
 
 app.use(cors({
     origin: function (origin, callback) {
-        // Permite requisições sem origem (ex: abrir index.html direto via file://) ou na lista branca
         if (!origin || origin === 'null' || origensPermitidas.includes(origin)) {
             callback(null, true);
         } else {
@@ -37,17 +35,15 @@ app.use(cors({
 
 app.use(express.json({ limit: '10kb' }));
 
-// Limitador Geral da API (100 requisições por IP a cada 15 minutos)
 const limitadorGeral = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 100,
+    max: 150,
     standardHeaders: true,
     legacyHeaders: false,
     message: { erro: 'Muitas requisições deste IP. Tente novamente em 15 minutos.' }
 });
 app.use('/api/', limitadorGeral);
 
-// Limitador Estrito contra Força Bruta no Login (5 tentativas a cada 15 minutos)
 const limitadorLogin = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 5,
@@ -56,7 +52,6 @@ const limitadorLogin = rateLimit({
     message: { erro: 'Muitas tentativas de login. Acesso temporariamente bloqueado por 15 minutos.' }
 });
 
-// Middleware de Autenticação (Segurança de Porta JWT)
 function autenticarToken(req, res, next) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -219,7 +214,7 @@ app.delete('/api/planos/:id', autenticarToken, (req, res) => {
 });
 
 // ==========================================
-// 5. ROTAS DE CONTRATOS (PROTEGIDAS POR JWT)
+// 5. ROTAS DE CONTRATOS E AUDITORIA DE PAGAMENTOS
 // ==========================================
 app.get('/api/contratos', autenticarToken, (req, res) => {
     const sql = `
@@ -280,19 +275,81 @@ app.post('/api/contratos', autenticarToken, (req, res) => {
     });
 });
 
+// Registrar pagamento com trilha de auditoria na tabela pagamentos
 app.patch('/api/contratos/:id/pagar-parcela', autenticarToken, (req, res) => {
     const id = parseInt(req.params.id);
-    db.get('SELECT parcelas_pagas, parcelas_totais FROM contratos WHERE id = ?', [id], (err, contrato) => {
+    db.get('SELECT parcelas_pagas, parcelas_totais, valor_parcela FROM contratos WHERE id = ?', [id], (err, contrato) => {
         if (err || !contrato) return res.status(404).json({ erro: 'Contrato não encontrado.' });
 
         if (contrato.parcelas_pagas >= contrato.parcelas_totais) {
             return res.status(400).json({ erro: 'Este contrato já está totalmente quitado.' });
         }
 
-        const novasPagas = contrato.parcelas_pagas + 1;
-        db.run('UPDATE contratos SET parcelas_pagas = ? WHERE id = ?', [novasPagas, id], (err) => {
-            if (err) return res.status(500).json({ erro: 'Erro ao registrar pagamento.' });
-            res.json({ mensagem: 'Parcela registrada com sucesso!', parcelasPagas: novasPagas });
+        const numeroParcela = contrato.parcelas_pagas + 1;
+
+        db.serialize(() => {
+            db.run('BEGIN TRANSACTION');
+            db.run('UPDATE contratos SET parcelas_pagas = ? WHERE id = ?', [numeroParcela, id]);
+            db.run(
+                'INSERT INTO pagamentos (contrato_id, numero_parcela, valor_pago) VALUES (?, ?, ?)',
+                [id, numeroParcela, contrato.valor_parcela],
+                function(err) {
+                    if (err) {
+                        db.run('ROLLBACK');
+                        return res.status(500).json({ erro: 'Erro ao registrar recibo no histórico.' });
+                    }
+                    db.run('COMMIT');
+                    res.json({
+                        mensagem: 'Parcela registrada com sucesso!',
+                        reciboId: this.lastID,
+                        parcelasPagas: numeroParcela
+                    });
+                }
+            );
+        });
+    });
+});
+
+// Consultar histórico de pagamentos (recibos) de um contrato
+app.get('/api/contratos/:id/pagamentos', autenticarToken, (req, res) => {
+    const id = parseInt(req.params.id);
+    db.all(
+        'SELECT id, numero_parcela AS numeroParcela, valor_pago AS valorPago, data_pagamento AS dataPagamento FROM pagamentos WHERE contrato_id = ? ORDER BY numero_parcela ASC',
+        [id],
+        (err, rows) => {
+            if (err) return res.status(500).json({ erro: 'Erro ao carregar histórico de pagamentos.' });
+            res.json(rows);
+        }
+    );
+});
+
+// Estornar (desfazer) a última parcela paga
+app.delete('/api/contratos/:id/estornar-ultima', autenticarToken, (req, res) => {
+    const id = parseInt(req.params.id);
+    db.get('SELECT parcelas_pagas FROM contratos WHERE id = ?', [id], (err, contrato) => {
+        if (err || !contrato) return res.status(404).json({ erro: 'Contrato não encontrado.' });
+        if (contrato.parcelas_pagas <= 0) {
+            return res.status(400).json({ erro: 'Não há parcelas pagas para estornar neste contrato.' });
+        }
+
+        const parcelaAtual = contrato.parcelas_pagas;
+        const novaQuantidade = parcelaAtual - 1;
+
+        db.serialize(() => {
+            db.run('BEGIN TRANSACTION');
+            db.run('UPDATE contratos SET parcelas_pagas = ? WHERE id = ?', [novaQuantidade, id]);
+            db.run(
+                'DELETE FROM pagamentos WHERE contrato_id = ? AND numero_parcela = ?',
+                [id, parcelaAtual],
+                (err) => {
+                    if (err) {
+                        db.run('ROLLBACK');
+                        return res.status(500).json({ erro: 'Erro ao estornar pagamento.' });
+                    }
+                    db.run('COMMIT');
+                    res.json({ mensagem: 'Último pagamento estornado com sucesso!', parcelasPagas: novaQuantidade });
+                }
+            );
         });
     });
 });

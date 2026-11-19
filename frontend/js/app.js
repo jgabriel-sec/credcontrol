@@ -164,7 +164,13 @@ function formatarTelefone(tel) {
     return `(${tel.substring(0, 2)}) ${tel.substring(2, 6)}-${tel.substring(6)}`;
 }
 
-// Exportar Backup direto do Banco de Dados
+function formatarDataHoraSQLite(dataStr) {
+    if (!dataStr) return '—';
+    const [dataParte, horaParte] = dataStr.split(' ');
+    const [ano, mes, dia] = dataParte.split('-');
+    return horaParte ? `${dia}/${mes}/${ano} às ${horaParte.slice(0, 5)}` : `${dia}/${mes}/${ano}`;
+}
+
 document.getElementById('btn-exportar-backup').addEventListener('click', () => {
     const dadosBackup = {
         sistema: 'CredControl',
@@ -345,7 +351,7 @@ formPlano.addEventListener('submit', async (evento) => {
 });
 
 // ==========================================
-// 5. MÓDULO DE EMPRÉSTIMOS E VENCIMENTOS
+// 5. MÓDULO DE EMPRÉSTIMOS, VENCIMENTOS E RECIBOS
 // ==========================================
 const formEmprestimo = document.getElementById('form-emprestimo');
 const tabelaContratos = document.getElementById('tabela-contratos');
@@ -389,6 +395,117 @@ async function registrarPagamentoParcela(idContrato) {
         alert(erro.message);
     }
 }
+
+// ==========================================
+// 5.1 MODAL DE AUDITORIA E EXTRATO DE RECIBOS
+// ==========================================
+const modalHistorico = document.getElementById('modal-historico');
+const modalTituloCliente = document.getElementById('modal-titulo-cliente');
+const modalSubtituloContrato = document.getElementById('modal-subtitulo-contrato');
+const modalConteudoPagamentos = document.getElementById('modal-conteudo-pagamentos');
+const btnEstornarUltima = document.getElementById('btn-estornar-ultima');
+
+let contratoSendoAuditado = null;
+
+function fecharModalHistorico() {
+    modalHistorico.style.display = 'none';
+    contratoSendoAuditado = null;
+}
+
+document.getElementById('btn-fechar-modal').addEventListener('click', fecharModalHistorico);
+document.getElementById('btn-fechar-modal-rodape').addEventListener('click', fecharModalHistorico);
+modalHistorico.addEventListener('click', (e) => {
+    if (e.target === modalHistorico) fecharModalHistorico();
+});
+
+async function abrirHistoricoPagamentos(contrato) {
+    contratoSendoAuditado = contrato;
+    modalTituloCliente.textContent = `Extrato — ${contrato.cliente}`;
+    modalSubtituloContrato.textContent = `${contrato.plano} • ${contrato.parcelasPagas} de ${contrato.parcelas} parcelas pagas`;
+    modalConteudoPagamentos.innerHTML = '<p style="color: var(--text-muted);">Carregando recibos...</p>';
+    btnEstornarUltima.style.display = 'none';
+    modalHistorico.style.display = 'flex';
+
+    try {
+        const pagamentos = await requisicaoAPI(`/contratos/${contrato.id}/pagamentos`);
+        modalConteudoPagamentos.innerHTML = '';
+
+        if (pagamentos.length === 0) {
+            const pVazio = document.createElement('p');
+            pVazio.style.color = 'var(--text-muted)';
+            pVazio.style.textAlign = 'center';
+            pVazio.style.padding = '20px 0';
+            pVazio.textContent = 'Nenhuma parcela paga registrada neste contrato ainda.';
+            modalConteudoPagamentos.appendChild(pVazio);
+            return;
+        }
+
+        btnEstornarUltima.style.display = 'inline-block';
+
+        const tabela = document.createElement('table');
+        tabela.innerHTML = `
+            <thead>
+                <tr>
+                    <th>Protocolo</th>
+                    <th>Parcela</th>
+                    <th>Valor Pago</th>
+                    <th>Data/Hora</th>
+                </tr>
+            </thead>
+        `;
+        const tbody = document.createElement('tbody');
+
+        pagamentos.forEach((pag) => {
+            const tr = document.createElement('tr');
+            const protocolo = `#REC-${String(pag.id).padStart(4, '0')}`;
+            const dataFormatada = formatarDataHoraSQLite(pag.dataPagamento);
+
+            const tdProt = document.createElement('td');
+            tdProt.style.fontWeight = '600';
+            tdProt.textContent = protocolo;
+
+            const tdParc = document.createElement('td');
+            tdParc.textContent = `${pag.numeroParcela}ª de ${contrato.parcelas}`;
+
+            const tdValor = document.createElement('td');
+            tdValor.textContent = formatarMoeda(pag.valorPago);
+
+            const tdData = document.createElement('td');
+            tdData.textContent = dataFormatada;
+
+            tr.appendChild(tdProt);
+            tr.appendChild(tdParc);
+            tr.appendChild(tdValor);
+            tr.appendChild(tdData);
+            tbody.appendChild(tr);
+        });
+
+        tabela.appendChild(tbody);
+        modalConteudoPagamentos.appendChild(tabela);
+    } catch (erro) {
+        modalConteudoPagamentos.textContent = erro.message;
+    }
+}
+
+btnEstornarUltima.addEventListener('click', async () => {
+    if (!contratoSendoAuditado) return;
+    if (!confirm(`Deseja realmente estornar (desfazer) a ${contratoSendoAuditado.parcelasPagas}ª parcela de ${contratoSendoAuditado.cliente}?`)) {
+        return;
+    }
+
+    try {
+        await requisicaoAPI(`/contratos/${contratoSendoAuditado.id}/estornar-ultima`, { method: 'DELETE' });
+        await carregarTodosOsDados();
+        const contratoAtualizado = contratos.find(c => c.id === contratoSendoAuditado.id);
+        if (contratoAtualizado) {
+            await abrirHistoricoPagamentos(contratoAtualizado);
+        } else {
+            fecharModalHistorico();
+        }
+    } catch (erro) {
+        alert(erro.message);
+    }
+});
 
 function atualizarContratosNaTela() {
     tabelaContratos.innerHTML = '';
@@ -462,6 +579,12 @@ function atualizarContratosNaTela() {
             tdAcao.appendChild(btnPagar);
         }
 
+        const btnExtrato = document.createElement('button');
+        btnExtrato.className = 'btn-extrato';
+        btnExtrato.textContent = 'Extrato';
+        btnExtrato.title = 'Ver histórico de recibos e estornar';
+        btnExtrato.onclick = () => abrirHistoricoPagamentos(contrato);
+
         const linkZap = document.createElement('a');
         linkZap.className = 'btn-whatsapp';
         linkZap.target = '_blank';
@@ -486,6 +609,7 @@ function atualizarContratosNaTela() {
         btnExcluir.textContent = 'Excluir';
         btnExcluir.onclick = () => excluirContrato(contrato.id);
 
+        tdAcao.appendChild(btnExtrato);
         tdAcao.appendChild(linkZap);
         tdAcao.appendChild(btnExcluir);
 
@@ -508,7 +632,7 @@ function atualizarContratosNaTela() {
 inputBuscaContrato.addEventListener('input', atualizarContratosNaTela);
 
 async function excluirContrato(idContrato) {
-    if (!confirm('Deseja realmente excluir este contrato?')) return;
+    if (!confirm('Deseja realmente excluir este contrato e todo o seu histórico de pagamentos?')) return;
     try {
         await requisicaoAPI(`/contratos/${idContrato}`, { method: 'DELETE' });
         await carregarTodosOsDados();

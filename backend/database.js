@@ -56,9 +56,36 @@ db.serialize(() => {
         )
     `);
 
-    // Migração segura: adiciona a coluna caso o banco já existisse antes desta atualização
-    db.run(`ALTER TABLE contratos ADD COLUMN data_primeiro_vencimento TEXT`, (err) => {
-        // Ignora erro caso a coluna já exista
+    // Nova tabela de Auditoria Financeira (Histórico de Pagamentos)
+    db.run(`
+        CREATE TABLE IF NOT EXISTS pagamentos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contrato_id INTEGER NOT NULL,
+            numero_parcela INTEGER NOT NULL,
+            valor_pago REAL NOT NULL,
+            data_pagamento TEXT DEFAULT (datetime('now', 'localtime')),
+            FOREIGN KEY (contrato_id) REFERENCES contratos(id) ON DELETE CASCADE
+        )
+    `);
+
+    // Migração segura da coluna de vencimento
+    db.run(`ALTER TABLE contratos ADD COLUMN data_primeiro_vencimento TEXT`, () => {});
+
+    // Migração retroativa: garante histórico para parcelas pagas antes desta atualização
+    db.all('SELECT id, parcelas_pagas, valor_parcela FROM contratos WHERE parcelas_pagas > 0', (err, rows) => {
+        if (!err && rows) {
+            rows.forEach((c) => {
+                db.get('SELECT COUNT(*) as total FROM pagamentos WHERE contrato_id = ?', [c.id], (err, countRow) => {
+                    if (!err && countRow.total === 0) {
+                        const stmt = db.prepare('INSERT INTO pagamentos (contrato_id, numero_parcela, valor_pago) VALUES (?, ?, ?)');
+                        for (let i = 1; i <= c.parcelas_pagas; i++) {
+                            stmt.run(c.id, i, c.valor_parcela);
+                        }
+                        stmt.finalize();
+                    }
+                });
+            });
+        }
     });
 
     db.get('SELECT COUNT(*) as total FROM planos', (err, row) => {
