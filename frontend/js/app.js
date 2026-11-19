@@ -516,7 +516,6 @@ async function gerarContratoPDF(contrato) {
         return;
     }
 
-    // Busca o histórico real de pagamentos deste contrato para discriminar as datas pagas
     let historicoPagamentos = [];
     try {
         historicoPagamentos = await requisicaoAPI(`/contratos/${contrato.id}/pagamentos`);
@@ -537,90 +536,89 @@ async function gerarContratoPDF(contrato) {
         ? 'QUITADO'
         : (infoVencimento.atrasado ? 'EM ATRASO' : 'EM DIA');
 
-    // Cabeçalho Institucional
+    // Cabeçalho Institucional Compacto
     doc.setFillColor(15, 23, 42);
-    doc.rect(0, 0, 210, 32, 'F');
+    doc.rect(0, 0, 210, 26, 'F');
 
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(18);
-    doc.text('CREDCONTROL', 14, 15);
+    doc.setFontSize(16);
+    doc.text('CREDCONTROL', 14, 12);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.text('CONTRATO DE MÚTUO FINANCEIRO E DEMONSTRATIVO DE PARCELAS', 14, 23);
-
     doc.setFontSize(9);
-    doc.text(`Contrato Nº #CTR-${String(contrato.id).padStart(4, '0')}`, 160, 15);
-    doc.text(`Emissão: ${new Date().toLocaleDateString('pt-BR')}`, 160, 22);
+    doc.text('CONTRATO DE MÚTUO FINANCEIRO E DEMONSTRATIVO DE PARCELAS', 14, 19);
+
+    doc.setFontSize(8.5);
+    doc.text(`Contrato Nº #CTR-${String(contrato.id).padStart(4, '0')}`, 160, 12);
+    doc.text(`Emissão: ${new Date().toLocaleDateString('pt-BR')}`, 160, 18);
 
     // Seção 1: Identificação do Contratante (LGPD)
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11.5);
-    doc.text('1. IDENTIFICAÇÃO DO CONTRATANTE', 14, 44);
+    doc.setFontSize(10.5);
+    doc.text('1. IDENTIFICAÇÃO DO CONTRATANTE', 14, 35);
 
     doc.setDrawColor(203, 213, 225);
-    doc.line(14, 47, 196, 47);
+    doc.line(14, 37, 196, 37);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.text(`Nome Completo: ${contrato.cliente}`, 14, 54);
-    doc.text(`CPF (Protegido - LGPD): ${mascararCPF(contrato.cpf)}`, 14, 60);
-    doc.text(`Telefone / WhatsApp: ${formatarTelefone(contrato.whatsapp)}`, 14, 66);
+    doc.setFontSize(9.5);
+    doc.text(`Nome Completo: ${contrato.cliente}`, 14, 43);
+    doc.text(`CPF (Protegido - LGPD): ${mascararCPF(contrato.cpf)}`, 14, 48.5);
+    doc.text(`Telefone / WhatsApp: ${formatarTelefone(contrato.whatsapp)}`, 115, 48.5);
 
     // Seção 2: Condições Financeiras do Empréstimo
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11.5);
-    doc.text('2. CONDIÇÕES FINANCEIRAS CONTRATADAS', 14, 78);
-    doc.line(14, 81, 196, 81);
+    doc.setFontSize(10.5);
+    doc.text('2. CONDIÇÕES FINANCEIRAS CONTRATADAS', 14, 58);
+    doc.line(14, 60, 196, 60);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.text(`Plano Selecionado: ${contrato.plano} (${contrato.taxa}% a.m.)`, 14, 88);
-    doc.text(`Capital Principal Liberado: ${formatarMoeda(contrato.valorBase)}`, 14, 94);
-    doc.text(`Valor Total do Contrato: ${formatarMoeda(contrato.valorTotal)} (${contrato.parcelas}x de ${formatarMoeda(contrato.valorParcela)})`, 14, 100);
+    doc.setFontSize(9.5);
+    doc.text(`Plano Selecionado: ${contrato.plano} (${contrato.taxa}% a.m.)`, 14, 66);
+    doc.text(`Capital Liberado: ${formatarMoeda(contrato.valorBase)}`, 115, 66);
+    doc.text(`Valor Total do Contrato: ${formatarMoeda(contrato.valorTotal)} (${contrato.parcelas}x de ${formatarMoeda(contrato.valorParcela)})`, 14, 71.5);
 
     // Seção 3: Demonstrativo de Pagamento e Cronograma Discriminado
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11.5);
-    doc.text('3. DEMONSTRATIVO DE PAGAMENTO E CRONOGRAMA DE PARCELAS', 14, 112);
-    doc.line(14, 115, 196, 115);
+    doc.setFontSize(10.5);
+    doc.text('3. DEMONSTRATIVO DE PAGAMENTO E CRONOGRAMA DE PARCELAS', 14, 81);
+    doc.line(14, 83, 196, 83);
 
     // Resumo Consolidado
     doc.setFillColor(248, 250, 252);
-    doc.rect(14, 119, 182, 26, 'F');
+    doc.rect(14, 86, 182, 21, 'F');
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.text(`Parcelas Pagas até o momento: ${pagas} de ${contrato.parcelas} (${formatarMoeda(valorJaPago)})`, 18, 126);
-    doc.text(`Parcelas Restantes: ${Math.max(0, contrato.parcelas - pagas)} parcela(s)`, 125, 126);
+    doc.setFontSize(9.5);
+    doc.text(`Parcelas Pagas até o momento: ${pagas} de ${contrato.parcelas} (${formatarMoeda(valorJaPago)})`, 18, 92);
+    doc.text(`Parcelas Restantes: ${Math.max(0, contrato.parcelas - pagas)} parcela(s)`, 125, 92);
 
     doc.setFont('helvetica', 'bold');
-    doc.text(`Saldo Devedor Restante: ${formatarMoeda(saldoRestante)}`, 18, 134);
-    doc.text(`Situação Atual: ${statusTexto}`, 125, 134);
-    doc.text(`Próximo Vencimento: ${quitado ? 'Contrato Quitado' : infoVencimento.dataFormatada}`, 18, 141);
+    doc.text(`Saldo Devedor Restante: ${formatarMoeda(saldoRestante)}`, 18, 98);
+    doc.text(`Situação Atual: ${statusTexto}`, 125, 98);
+    doc.text(`Próximo Vencimento: ${quitado ? 'Contrato Quitado' : infoVencimento.dataFormatada}`, 18, 104);
 
     // Tabela Discriminada de Todas as Parcelas (Pagas e Restantes)
-    let y = 154;
+    let y = 115;
 
     doc.setFillColor(226, 232, 240);
-    doc.rect(14, y - 5, 182, 7, 'F');
+    doc.rect(14, y - 4.5, 182, 6.5, 'F');
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setTextColor(15, 23, 42);
     doc.text('PARCELA', 18, y);
     doc.text('VALOR', 55, y);
     doc.text('DATA (PAGAMENTO / VENCIMENTO)', 95, y);
     doc.text('SITUAÇÃO', 165, y);
 
-    y += 7;
+    y += 6;
 
     for (let i = 1; i <= contrato.parcelas; i++) {
-        // Quebra de página automática caso o contrato tenha muitas parcelas
-        if (y > 265) {
+        if (y > 272) {
             doc.addPage();
-            y = 20;
+            y = 18;
         }
 
         const foiPaga = i <= pagas;
@@ -632,14 +630,13 @@ async function gerarContratoPDF(contrato) {
                 : 'Pagamento Confirmado';
 
             doc.setFont('helvetica', 'normal');
-            doc.setTextColor(6, 95, 70); // Verde escuro
+            doc.setTextColor(6, 95, 70);
             doc.text(`${i}ª de ${contrato.parcelas}`, 18, y);
             doc.text(formatarMoeda(contrato.valorParcela), 55, y);
             doc.text(dataPgtoTexto, 95, y);
             doc.setFont('helvetica', 'bold');
             doc.text('Paga', 165, y);
         } else {
-            // Calcula a data exata de vencimento desta parcela específica (índice i - 1)
             const vencParcela = calcularProximoVencimento(contrato.dataPrimeiroVencimento, i - 1);
             const statusParcela = vencParcela.atrasado ? 'Atrasada' : 'Em Aberto';
 
@@ -652,45 +649,44 @@ async function gerarContratoPDF(contrato) {
             doc.text(statusParcela, 165, y);
         }
 
-        // Linha divisória sutil entre parcelas
         doc.setDrawColor(241, 245, 249);
-        doc.line(14, y + 2, 196, y + 2);
-        y += 6.5;
+        doc.line(14, y + 1.5, 196, y + 1.5);
+        y += 5.5;
     }
 
-    // Verifica espaço para Termos e Assinaturas (cria nova página se estiver muito embaixo)
-    if (y > 225) {
+    // Garante que o bloco de Termos e Assinaturas fique sempre unido na mesma página
+    if (y > 240) {
         doc.addPage();
         y = 20;
     } else {
-        y += 8;
+        y += 6;
     }
 
     // Seção 4: Termos e Assinaturas
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10.5);
+    doc.setFontSize(10);
     doc.text('4. TERMOS E CONCORDÂNCIA', 14, y);
-    y += 6;
+    y += 5;
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     const termo = 'O(A) CONTRATANTE reconhece a liquidez e certeza do valor acima discriminado, comprometendo-se a efetuar o pagamento das parcelas mensais nas datas de vencimento estipuladas neste instrumento.';
     const linhasTermo = doc.splitTextToSize(termo, 182);
     doc.text(linhasTermo, 14, y);
 
-    y += 28;
+    y += 20;
     doc.setDrawColor(100, 116, 139);
     doc.line(20, y, 95, y);
-    doc.text('CredControl - Administração', 35, y + 5);
+    doc.text('CredControl - Administração', 36, y + 4.5);
 
     doc.line(115, y, 190, y);
-    doc.text(`${contrato.cliente}`, 125, y + 5);
+    doc.text(`${contrato.cliente}`, 125, y + 4.5);
 
     // Rodapé
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setTextColor(100, 116, 139);
-    doc.text('Documento gerado eletronicamente pelo sistema CredControl.', 14, 285);
+    doc.text('Documento gerado eletronicamente pelo sistema CredControl.', 14, 288);
 
     const nomeArquivo = `Contrato_${contrato.cliente.replace(/\s+/g, '_')}_CTR${contrato.id}.pdf`;
     doc.save(nomeArquivo);
@@ -859,7 +855,6 @@ formEmprestimo.addEventListener('submit', async (evento) => {
         definirDataPadraoFormulario();
         await carregarTodosOsDados();
 
-        // Localiza o contrato recém-criado, baixa o PDF e abre o WhatsApp
         const novoContrato = contratos.find(c => c.id === resposta.id);
         if (novoContrato) {
             await gerarContratoPDF(novoContrato);
