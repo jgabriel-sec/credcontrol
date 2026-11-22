@@ -238,6 +238,7 @@ document.getElementById('input-importar-backup').addEventListener('change', (eve
 // ==========================================
 const formCliente = document.getElementById('form-cliente');
 const tabelaClientes = document.getElementById('tabela-clientes');
+const inputBuscaCliente = document.getElementById('busca-cliente');
 const selectClienteContrato = document.getElementById('contrato-cliente');
 const inputClienteCpf = document.getElementById('cliente-cpf');
 const inputClienteWhatsapp = document.getElementById('cliente-whatsapp');
@@ -333,6 +334,9 @@ function atualizarClientesNaTela() {
     tabelaClientes.innerHTML = '';
     selectClienteContrato.innerHTML = '';
 
+    const termoBusca = inputBuscaCliente.value.toLowerCase().trim();
+    const termoDigitos = termoBusca.replace(/\D/g, '');
+
     if (clientes.length === 0) {
         const optionVazio = document.createElement('option');
         optionVazio.value = '';
@@ -340,12 +344,38 @@ function atualizarClientesNaTela() {
         selectClienteContrato.appendChild(optionVazio);
     }
 
+    // Preenche o select completo da tela de Empréstimos
     clientes.forEach((cliente) => {
         const option = document.createElement('option');
         option.value = cliente.id;
         option.textContent = `${cliente.nome} (${mascararCPF(cliente.cpf)})`;
         selectClienteContrato.appendChild(option);
+    });
 
+    // Filtra a tabela de Clientes Cadastrados por Nome ou CPF
+    const clientesFiltrados = clientes.filter((cliente) => {
+        if (!termoBusca) return true;
+        const bateNome = cliente.nome.toLowerCase().includes(termoBusca);
+        const bateCpf = termoDigitos.length > 0 && String(cliente.cpf).includes(termoDigitos);
+        return bateNome || bateCpf;
+    });
+
+    if (clientesFiltrados.length === 0) {
+        const trVazio = document.createElement('tr');
+        const tdVazio = document.createElement('td');
+        tdVazio.colSpan = 5;
+        tdVazio.style.textAlign = 'center';
+        tdVazio.style.color = 'var(--text-muted)';
+        tdVazio.style.padding = '18px';
+        tdVazio.textContent = termoBusca
+            ? 'Nenhum cliente encontrado com esse nome ou CPF.'
+            : 'Nenhum cliente cadastrado ainda.';
+        trVazio.appendChild(tdVazio);
+        tabelaClientes.appendChild(trVazio);
+        return;
+    }
+
+    clientesFiltrados.forEach((cliente) => {
         const tr = document.createElement('tr');
 
         const tdNome = document.createElement('td');
@@ -377,6 +407,8 @@ function atualizarClientesNaTela() {
         tabelaClientes.appendChild(tr);
     });
 }
+
+inputBuscaCliente.addEventListener('input', atualizarClientesNaTela);
 
 async function excluirCliente(idCliente) {
     if (!confirm('Deseja realmente excluir este cliente?')) return;
@@ -560,7 +592,6 @@ const elTotalReceber = document.getElementById('total-receber');
 const elLucroGeral = document.getElementById('lucro-geral');
 const inputDataVencimento = document.getElementById('data-vencimento');
 
-// Elementos do Extrato Mensal
 const inputFiltroMesExtrato = document.getElementById('filtro-mes-extrato');
 const elMesTotalRecebido = document.getElementById('mes-total-recebido');
 const elMesCapitalRecuperado = document.getElementById('mes-capital-recuperado');
@@ -580,9 +611,8 @@ function definirDataPadraoFormulario() {
 }
 definirDataPadraoFormulario();
 
-// Atualiza o Extrato Mensal com base no mês selecionado (YYYY-MM)
 function atualizarExtratoMensal() {
-    const mesSelecionado = inputFiltroMesExtrato.value; // Ex: "2026-11"
+    const mesSelecionado = inputFiltroMesExtrato.value;
     tabelaExtratoMensal.innerHTML = '';
 
     const movimentacoesDoMes = pagamentosGerais.filter((pag) => {
@@ -987,7 +1017,6 @@ function atualizarContratosNaTela() {
         const valorJaPago = pagas * contrato.valorParcela;
         const saldoRestante = Math.max(0, contrato.valorTotal - valorJaPago);
 
-        // Lucro proporcional às parcelas já pagas neste contrato
         const capitalPorParcela = contrato.valorBase / contrato.parcelas;
         const lucroPorParcela = Math.max(0, contrato.valorParcela - capitalPorParcela);
         const lucroRealizadoContrato = pagas * lucroPorParcela;
