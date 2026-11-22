@@ -126,22 +126,26 @@ itensMenu.forEach((item) => {
 let clientes = [];
 let planos = [];
 let contratos = [];
+let pagamentosGerais = [];
 
 async function carregarTodosOsDados() {
     try {
-        const [listaClientes, listaPlanos, listaContratos] = await Promise.all([
+        const [listaClientes, listaPlanos, listaContratos, listaPagamentos] = await Promise.all([
             requisicaoAPI('/clientes'),
             requisicaoAPI('/planos'),
-            requisicaoAPI('/contratos')
+            requisicaoAPI('/contratos'),
+            requisicaoAPI('/financeiro/pagamentos-geral')
         ]);
 
         clientes = listaClientes;
         planos = listaPlanos;
         contratos = listaContratos;
+        pagamentosGerais = listaPagamentos;
 
         atualizarClientesNaTela();
         atualizarPlanosNaTela();
         atualizarContratosNaTela();
+        atualizarExtratoMensal();
     } catch (erro) {
         console.error('Erro ao carregar dados do servidor:', erro.message);
     }
@@ -211,7 +215,8 @@ document.getElementById('btn-exportar-backup').addEventListener('click', () => {
         dataExportacao: new Date().toISOString(),
         clientes,
         planos,
-        contratos
+        contratos,
+        pagamentosGerais
     };
 
     const blob = new Blob([JSON.stringify(dadosBackup, null, 2)], { type: 'application/json' });
@@ -297,7 +302,6 @@ inputClienteWhatsapp.addEventListener('input', (evento) => {
     evento.target.value = aplicarMascaraWhatsapp(evento.target.value);
 });
 
-// Máscara do CEP (00000-000) e consulta automática opcional via ViaCEP
 inputClienteCep.addEventListener('input', async (evento) => {
     const digitos = evento.target.value.replace(/\D/g, '').slice(0, 8);
     evento.target.value = digitos.length > 5
@@ -316,7 +320,7 @@ inputClienteCep.addEventListener('input', async (evento) => {
                 inputClienteNumero.focus();
             }
         } catch (e) {
-            // Caso esteja sem internet, o usuário preenche manualmente sem problemas
+            // Preenchimento manual caso offline
         }
     }
 });
@@ -545,7 +549,7 @@ formPlano.addEventListener('submit', async (evento) => {
 });
 
 // ==========================================
-// 5. MÓDULO DE EMPRÉSTIMOS, VENCIMENTOS E RECIBOS
+// 5. MÓDULO DE EMPRÉSTIMOS, LUCROS E RECIBOS
 // ==========================================
 const formEmprestimo = document.getElementById('form-emprestimo');
 const tabelaContratos = document.getElementById('tabela-contratos');
@@ -553,7 +557,15 @@ const inputBuscaContrato = document.getElementById('busca-contrato');
 const elTotalEmprestado = document.getElementById('total-emprestado');
 const elTotalRecebido = document.getElementById('total-recebido');
 const elTotalReceber = document.getElementById('total-receber');
+const elLucroGeral = document.getElementById('lucro-geral');
 const inputDataVencimento = document.getElementById('data-vencimento');
+
+// Elementos do Extrato Mensal
+const inputFiltroMesExtrato = document.getElementById('filtro-mes-extrato');
+const elMesTotalRecebido = document.getElementById('mes-total-recebido');
+const elMesCapitalRecuperado = document.getElementById('mes-capital-recuperado');
+const elMesLucroLiquido = document.getElementById('mes-lucro-liquido');
+const tabelaExtratoMensal = document.getElementById('tabela-extrato-mensal');
 
 function definirDataPadraoFormulario() {
     const hoje = new Date();
@@ -561,8 +573,86 @@ function definirDataPadraoFormulario() {
     const mes = String(hoje.getMonth() + 1).padStart(2, '0');
     const dia = String(hoje.getDate()).padStart(2, '0');
     inputDataVencimento.value = `${ano}-${mes}-${dia}`;
+
+    if (!inputFiltroMesExtrato.value) {
+        inputFiltroMesExtrato.value = `${ano}-${mes}`;
+    }
 }
 definirDataPadraoFormulario();
+
+// Atualiza o Extrato Mensal com base no mês selecionado (YYYY-MM)
+function atualizarExtratoMensal() {
+    const mesSelecionado = inputFiltroMesExtrato.value; // Ex: "2026-11"
+    tabelaExtratoMensal.innerHTML = '';
+
+    const movimentacoesDoMes = pagamentosGerais.filter((pag) => {
+        if (!pag.dataPagamento) return false;
+        return pag.dataPagamento.startsWith(mesSelecionado);
+    });
+
+    let recebidoMes = 0;
+    let capitalMes = 0;
+    let lucroMes = 0;
+
+    if (movimentacoesDoMes.length === 0) {
+        const trVazio = document.createElement('tr');
+        const tdVazio = document.createElement('td');
+        tdVazio.colSpan = 6;
+        tdVazio.style.textAlign = 'center';
+        tdVazio.style.color = 'var(--text-muted)';
+        tdVazio.style.padding = '18px';
+        tdVazio.textContent = 'Nenhum pagamento registrado no mês selecionado.';
+        trVazio.appendChild(tdVazio);
+        tabelaExtratoMensal.appendChild(trVazio);
+    } else {
+        movimentacoesDoMes.forEach((pag) => {
+            const capitalParcela = pag.valorBase / pag.parcelasTotais;
+            const lucroParcela = Math.max(0, pag.valorPago - capitalParcela);
+
+            recebidoMes += pag.valorPago;
+            capitalMes += capitalParcela;
+            lucroMes += lucroParcela;
+
+            const tr = document.createElement('tr');
+
+            const tdData = document.createElement('td');
+            tdData.textContent = formatarDataHoraSQLite(pag.dataPagamento);
+
+            const tdContrato = document.createElement('td');
+            tdContrato.style.fontWeight = '600';
+            tdContrato.textContent = `#CTR-${String(pag.contratoId).padStart(4, '0')}`;
+
+            const tdCliente = document.createElement('td');
+            tdCliente.textContent = pag.cliente;
+
+            const tdParcela = document.createElement('td');
+            tdParcela.textContent = `${pag.numeroParcela}ª de ${pag.parcelasTotais}`;
+
+            const tdValor = document.createElement('td');
+            tdValor.textContent = formatarMoeda(pag.valorPago);
+
+            const tdLucro = document.createElement('td');
+            tdLucro.style.color = '#059669';
+            tdLucro.style.fontWeight = '600';
+            tdLucro.textContent = `+ ${formatarMoeda(lucroParcela)}`;
+
+            tr.appendChild(tdData);
+            tr.appendChild(tdContrato);
+            tr.appendChild(tdCliente);
+            tr.appendChild(tdParcela);
+            tr.appendChild(tdValor);
+            tr.appendChild(tdLucro);
+
+            tabelaExtratoMensal.appendChild(tr);
+        });
+    }
+
+    elMesTotalRecebido.textContent = formatarMoeda(recebidoMes);
+    elMesCapitalRecuperado.textContent = formatarMoeda(capitalMes);
+    elMesLucroLiquido.textContent = formatarMoeda(lucroMes);
+}
+
+inputFiltroMesExtrato.addEventListener('change', atualizarExtratoMensal);
 
 function calcularProximoVencimento(dataInicialISO, parcelasPagas) {
     const [ano, mes, dia] = dataInicialISO.split('-').map(Number);
@@ -746,7 +836,6 @@ async function gerarContratoPDF(contrato) {
     doc.text(`Contrato Nº #CTR-${String(contrato.id).padStart(4, '0')}`, 160, 12);
     doc.text(`Emissão: ${new Date().toLocaleDateString('pt-BR')}`, 160, 18);
 
-    // Seção 1: Identificação e Endereço do Contratante (LGPD)
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10.5);
@@ -767,7 +856,6 @@ async function gerarContratoPDF(contrato) {
 
     const offsetEndereco = linhasEndereco.length > 1 ? 5 : 0;
 
-    // Seção 2: Condições Financeiras do Empréstimo
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10.5);
     doc.text('2. CONDIÇÕES FINANCEIRAS CONTRATADAS', 14, 62 + offsetEndereco);
@@ -779,7 +867,6 @@ async function gerarContratoPDF(contrato) {
     doc.text(`Capital Liberado: ${formatarMoeda(contrato.valorBase)}`, 115, 70 + offsetEndereco);
     doc.text(`Valor Total do Contrato: ${formatarMoeda(contrato.valorTotal)} (${contrato.parcelas}x de ${formatarMoeda(contrato.valorParcela)})`, 14, 75.5 + offsetEndereco);
 
-    // Seção 3: Demonstrativo de Pagamento e Cronograma Discriminado
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10.5);
     doc.text('3. DEMONSTRATIVO DE PAGAMENTO E CRONOGRAMA DE PARCELAS', 14, 85 + offsetEndereco);
@@ -893,15 +980,22 @@ function atualizarContratosNaTela() {
     let somaEmprestado = 0;
     let somaRecebido = 0;
     let somaAReceber = 0;
+    let somaLucroGeral = 0;
 
     contratos.forEach((contrato) => {
         const pagas = contrato.parcelasPagas || 0;
         const valorJaPago = pagas * contrato.valorParcela;
         const saldoRestante = Math.max(0, contrato.valorTotal - valorJaPago);
 
+        // Lucro proporcional às parcelas já pagas neste contrato
+        const capitalPorParcela = contrato.valorBase / contrato.parcelas;
+        const lucroPorParcela = Math.max(0, contrato.valorParcela - capitalPorParcela);
+        const lucroRealizadoContrato = pagas * lucroPorParcela;
+
         somaEmprestado += contrato.valorBase;
         somaRecebido += valorJaPago;
         somaAReceber += saldoRestante;
+        somaLucroGeral += lucroRealizadoContrato;
 
         if (termoBusca && !contrato.cliente.toLowerCase().includes(termoBusca)) {
             return;
@@ -1013,6 +1107,7 @@ function atualizarContratosNaTela() {
     elTotalEmprestado.textContent = formatarMoeda(somaEmprestado);
     elTotalRecebido.textContent = formatarMoeda(somaRecebido);
     elTotalReceber.textContent = formatarMoeda(somaAReceber);
+    elLucroGeral.textContent = formatarMoeda(somaLucroGeral);
 }
 
 inputBuscaContrato.addEventListener('input', atualizarContratosNaTela);

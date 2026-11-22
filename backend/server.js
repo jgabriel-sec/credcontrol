@@ -249,7 +249,7 @@ app.delete('/api/planos/:id', autenticarToken, (req, res) => {
 });
 
 // ==========================================
-// 5. ROTAS DE CONTRATOS E AUDITORIA DE PAGAMENTOS
+// 5. ROTAS DE CONTRATOS, LUCROS E AUDITORIA
 // ==========================================
 app.get('/api/contratos', autenticarToken, (req, res) => {
     const sql = `
@@ -285,6 +285,31 @@ app.get('/api/contratos', autenticarToken, (req, res) => {
     });
 });
 
+// Rota para apuração de Lucro Geral e Extrato Mensal
+app.get('/api/financeiro/pagamentos-geral', autenticarToken, (req, res) => {
+    const sql = `
+        SELECT 
+            pag.id,
+            pag.contrato_id AS contratoId,
+            pag.numero_parcela AS numeroParcela,
+            pag.valor_pago AS valorPago,
+            pag.data_pagamento AS dataPagamento,
+            c.valor_base AS valorBase,
+            c.parcelas_totais AS parcelasTotais,
+            cli.nome AS cliente,
+            p.nome AS plano
+        FROM pagamentos pag
+        JOIN contratos c ON pag.contrato_id = c.id
+        JOIN clientes cli ON c.cliente_id = cli.id
+        JOIN planos p ON c.plano_id = p.id
+        ORDER BY pag.data_pagamento DESC, pag.id DESC
+    `;
+    db.all(sql, [], (err, rows) => {
+        if (err) return res.status(500).json({ erro: 'Erro ao carregar movimentações financeiras.' });
+        res.json(rows);
+    });
+});
+
 app.post('/api/contratos', autenticarToken, (req, res) => {
     const clienteId = parseInt(req.body.clienteId);
     const planoId = parseInt(req.body.planoId);
@@ -308,7 +333,7 @@ app.post('/api/contratos', autenticarToken, (req, res) => {
 
         db.run(
             `INSERT INTO contratos (cliente_id, plano_id, valor_base, valor_total, valor_parcela, parcelas_totais, parcelas_pagas, data_primeiro_vencimento) 
-             VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
+             VALUES ($1, $2, $3, $4, $5, $6, 0, $7)`.replace(/\$\d+/g, '?'),
             [clienteId, planoId, valorBase, valorTotal, valorParcela, plano.parcelas, dataVencimento],
             function(err) {
                 if (err) return res.status(400).json({ erro: 'Erro ao criar contrato. Verifique se o cliente existe.' });
