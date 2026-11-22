@@ -53,6 +53,7 @@
                 <a href="#" class="menu-item active" data-tela="tela-emprestimos">Empréstimos</a>
                 <a href="#" class="menu-item" data-tela="tela-clientes">Clientes</a>
                 <a href="#" class="menu-item" data-tela="tela-planos">Planos e Taxas</a>
+                <a href="#" class="menu-item" data-tela="tela-relatorios">Relatórios e Lucros</a>
             </nav>
 
             <!-- Ferramentas de Backup e Logout no Rodapé -->
@@ -149,51 +150,6 @@
                                 </tr>
                             </thead>
                             <tbody id="tabela-contratos"></tbody>
-                        </table>
-                    </div>
-                </section>
-
-                <!-- Extrato de Lucro por Mês -->
-                <section class="panel">
-                    <div class="panel-header-flex">
-                        <div>
-                            <h2 style="margin-bottom: 2px;">Extrato e Lucro Mensal</h2>
-                            <span style="font-size: 0.85rem; color: var(--text-muted);">Selecione o mês para apurar o faturamento e o lucro líquido recebido</span>
-                        </div>
-                        <div class="form-group" style="min-width: 190px;">
-                            <label for="filtro-mes-extrato" style="font-size: 0.78rem;">Mês de Referência</label>
-                            <input type="month" id="filtro-mes-extrato">
-                        </div>
-                    </div>
-
-                    <div class="summary-grid" style="margin-bottom: 18px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));">
-                        <div class="card" style="background-color: #F8FAFC;">
-                            <span class="card-label">Recebido no Mês</span>
-                            <strong class="card-value" style="font-size: 1.25rem;" id="mes-total-recebido">R$ 0,00</strong>
-                        </div>
-                        <div class="card" style="background-color: #F8FAFC;">
-                            <span class="card-label">Capital Recuperado</span>
-                            <strong class="card-value" style="font-size: 1.25rem; color: #475569;" id="mes-capital-recuperado">R$ 0,00</strong>
-                        </div>
-                        <div class="card" style="background-color: #ECFDF5; border-color: #A7F3D0;">
-                            <span class="card-label" style="color: #065F46;">Lucro Líquido do Mês</span>
-                            <strong class="card-value text-success" style="font-size: 1.25rem;" id="mes-lucro-liquido">R$ 0,00</strong>
-                        </div>
-                    </div>
-
-                    <div class="table-responsive">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Data/Hora</th>
-                                    <th>Contrato</th>
-                                    <th>Cliente</th>
-                                    <th>Parcela</th>
-                                    <th>Valor Recebido</th>
-                                    <th>Lucro da Parcela</th>
-                                </tr>
-                            </thead>
-                            <tbody id="tabela-extrato-mensal"></tbody>
                         </table>
                     </div>
                 </section>
@@ -334,6 +290,58 @@
                                 </tr>
                             </thead>
                             <tbody id="tabela-planos"></tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <!-- TELA 4: RELATÓRIOS E EXTRATO MENSAL DE LUCROS -->
+            <div id="tela-relatorios" class="tela-secao" style="display: none;">
+                <header class="topbar">
+                    <h1>Relatórios e Lucros</h1>
+                    <span class="badge-admin">Apuração Financeira</span>
+                </header>
+
+                <section class="panel">
+                    <div class="panel-header-flex">
+                        <div>
+                            <h2 style="margin-bottom: 2px;">Extrato e Lucro Mensal</h2>
+                            <span style="font-size: 0.85rem; color: var(--text-muted);">Selecione o mês para apurar o faturamento e o lucro líquido recebido</span>
+                        </div>
+                        <div class="form-group" style="min-width: 190px;">
+                            <label for="filtro-mes-extrato" style="font-size: 0.78rem;">Mês de Referência</label>
+                            <input type="month" id="filtro-mes-extrato">
+                        </div>
+                    </div>
+
+                    <div class="summary-grid" style="margin-bottom: 18px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));">
+                        <div class="card" style="background-color: #F8FAFC;">
+                            <span class="card-label">Recebido no Mês</span>
+                            <strong class="card-value" style="font-size: 1.25rem;" id="mes-total-recebido">R$ 0,00</strong>
+                        </div>
+                        <div class="card" style="background-color: #F8FAFC;">
+                            <span class="card-label">Capital Recuperado</span>
+                            <strong class="card-value" style="font-size: 1.25rem; color: #475569;" id="mes-capital-recuperado">R$ 0,00</strong>
+                        </div>
+                        <div class="card" style="background-color: #ECFDF5; border-color: #A7F3D0;">
+                            <span class="card-label" style="color: #065F46;">Lucro Líquido do Mês</span>
+                            <strong class="card-value text-success" style="font-size: 1.25rem;" id="mes-lucro-liquido">R$ 0,00</strong>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Data/Hora</th>
+                                    <th>Contrato</th>
+                                    <th>Cliente</th>
+                                    <th>Parcela</th>
+                                    <th>Valor Recebido</th>
+                                    <th>Lucro da Parcela</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabela-extrato-mensal"></tbody>
                         </table>
                     </div>
                 </section>
