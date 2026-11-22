@@ -249,7 +249,7 @@ app.delete('/api/planos/:id', autenticarToken, (req, res) => {
 });
 
 // ==========================================
-// 5. ROTAS DE CONTRATOS, LUCROS E AUDITORIA
+// 5. ROTAS DE CONTRATOS, UNIFICAÇÃO, TAXAS E AUDITORIA
 // ==========================================
 app.get('/api/contratos', autenticarToken, (req, res) => {
     const sql = `
@@ -260,6 +260,10 @@ app.get('/api/contratos', autenticarToken, (req, res) => {
             c.valor_parcela AS valorParcela,
             c.parcelas_totais AS parcelas,
             c.parcelas_pagas AS parcelasPagas,
+            COALESCE(c.taxa_aplicada, p.taxa) AS taxa,
+            COALESCE(c.status, 'ativo') AS status,
+            c.contrato_origem_id AS contratoOrigemId,
+            c.observacao AS observacao,
             COALESCE(c.data_primeiro_vencimento, DATE(c.data_criacao)) AS dataPrimeiroVencimento,
             cli.id AS clienteId,
             cli.nome AS cliente,
@@ -272,8 +276,7 @@ app.get('/api/contratos', autenticarToken, (req, res) => {
             cli.bairro AS bairro,
             cli.cidade AS cidade,
             cli.uf AS uf,
-            p.nome AS plano,
-            p.taxa AS taxa
+            p.nome AS plano
         FROM contratos c
         JOIN clientes cli ON c.cliente_id = cli.id
         JOIN planos p ON c.plano_id = p.id
@@ -285,7 +288,6 @@ app.get('/api/contratos', autenticarToken, (req, res) => {
     });
 });
 
-// Rota para apuração de Lucro Geral e Extrato Mensal
 app.get('/api/financeiro/pagamentos-geral', autenticarToken, (req, res) => {
     const sql = `
         SELECT 
@@ -310,11 +312,38 @@ app.get('/api/financeiro/pagamentos-geral', autenticarToken, (req, res) => {
     });
 });
 
+// Verifica se um contrato ativo possui parcela vencendo no mesmo mês (YYYY-MM) e mesmo dia (DD)
+function contratoVenceNoMesmoMesEDia(contrato, novaDataISO) {
+    if ((contrato.status || 'ativo') !== 'ativo') return false;
+    if (contrato.parcelasPagas >= contrato.parcelasTotais) return false;
+
+    const [novoAno, novoMes, novoDia] = novaDataISO.split('-').map(Number);
+    const [origAno, origMes, origDia] = contrato.dataPrimeiroVencimento.split('-').map(Number);
+
+    // Verifica cada parcela em aberto do contrato existente
+    for (let i = contrato.parcelasPagas; i < contrato.parcelasTotais; i++) {
+        const dataParc = new Date(origAno, origMes - 1 + i, origDia);
+        if (dataParc.getDate() !== origDia) {
+            dataParc.setDate(0);
+        }
+
+        const parcAno = dataParc.getFullYear();
+        const parcMes = dataParc.getMonth() + 1;
+        const parcDia = dataParc.getDate();
+
+        if (parcAno === novoAno && parcMes === novoMes && parcDia === novoDia) {
+            return true;
+        }
+    }
+    return false;
+}
+
 app.post('/api/contratos', autenticarToken, (req, res) => {
     const clienteId = parseInt(req.body.clienteId);
     const planoId = parseInt(req.body.planoId);
     const valorBase = parseFloat(req.body.valorBase);
     const dataVencimento = String(req.body.dataPrimeiroVencimento || '').trim();
+    const confirmarUnificacao = Boolean(req.body.confirmarUnificacao);
 
     if (isNaN(clienteId) || isNaN(planoId) || isNaN(valorBase) || valorBase < 50) {
         return res.status(400).json({ erro: 'Dados do contrato inválidos (valor mínimo R$ 50,00).' });
@@ -327,17 +356,126 @@ app.post('/api/contratos', autenticarToken, (req, res) => {
     db.get('SELECT * FROM planos WHERE id = ?', [planoId], (err, plano) => {
         if (err || !plano) return res.status(404).json({ erro: 'Plano não encontrado.' });
 
-        const jurosTotais = valorBase * (plano.taxa / 100) * plano.parcelas;
-        const valorTotal = valorBase + jurosTotais;
-        const valorParcela = valorTotal / plano.parcelas;
+        // Busca contratos ativos em aberto deste cliente
+        db.all(
+            `SELECT id, valor_base AS valorBase, valor_total AS valorTotal, valor_parcela AS valorParcela,
+                    parcelas_totais AS parcelasTotais, parcelas_pagas AS parcelasPagas, status,
+                    COALESCE(data_primeiro_vencimento, DATE(data_criacao)) AS dataPrimeiroVencimento
+             FROM contratos 
+             WHERE cliente_id = ? AND COALESCE(status, 'ativo') = 'ativo' AND parcelas_pagas < parcelas_totais`,
+            [clienteId],
+            (err, ativos) => {
+                if (err) return res.status(500).json({ erro: 'Erro ao verificar contratos ativos do cliente.' });
+
+                const contratoConflitante = ativos.find(c => contratoVenceNoMesmoMesEDia(c, dataVencimento));
+
+                if (contratoConflitante) {
+                    const capitalPorParcela = contratoConflitante.valorBase / contratoConflitante.parcelasTotais;
+                    const parcelasRestantes = contratoConflitante.parcelasTotais - contratoConflitante.parcelasPagas;
+                    const saldoCapitalAnterior = parcelasRestantes * capitalPorParcela;
+                    const saldoTotalAnterior = parcelasRestantes * contratoConflitante.valorParcela;
+
+                    // Se ainda não houve confirmação explícita do usuário, retorna os dados para o modal de confirmação
+                    if (!confirmarUnificacao) {
+                        return res.status(409).json({
+                            requerUnificacao: true,
+                            contratoAnterior: {
+                                id: contratoConflitante.id,
+                                valorBaseOriginal: contratoConflitante.valorBase,
+                                saldoCapitalRestante: saldoCapitalAnterior,
+                                saldoTotalRestante: saldoTotalAnterior,
+                                parcelasPagas: contratoConflitante.parcelasPagas,
+                                parcelasTotais: contratoConflitante.parcelasTotais
+                            },
+                            novoValorSolicitado: valorBase,
+                            valorBaseUnificado: saldoCapitalAnterior + valorBase
+                        });
+                    }
+
+                    // Executa a unificação preservando o contrato anterior no histórico
+                    const novoValorBaseUnificado = saldoCapitalAnterior + valorBase;
+                    const jurosTotais = novoValorBaseUnificado * (plano.taxa / 100) * plano.parcelas;
+                    const valorTotal = novoValorBaseUnificado + jurosTotais;
+                    const valorParcela = valorTotal / plano.parcelas;
+                    const obsUnificacao = `Unificado com contrato #CTR-${String(contratoConflitante.id).padStart(4, '0')} (Saldo anterior: R$ ${saldoCapitalAnterior.toFixed(2)} + Novo: R$ ${valorBase.toFixed(2)})`;
+
+                    db.serialize(() => {
+                        db.run('BEGIN TRANSACTION');
+                        db.run(
+                            `UPDATE contratos SET status = 'unificado' WHERE id = ?`,
+                            [contratoConflitante.id]
+                        );
+                        db.run(
+                            `INSERT INTO contratos (cliente_id, plano_id, valor_base, valor_total, valor_parcela, parcelas_totais, parcelas_pagas, taxa_aplicada, status, contrato_origem_id, observacao, data_primeiro_vencimento)
+                             VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'ativo', ?, ?, ?)`,
+                            [clienteId, planoId, novoValorBaseUnificado, valorTotal, valorParcela, plano.parcelas, plano.taxa, contratoConflitante.id, obsUnificacao, dataVencimento],
+                            function(err) {
+                                if (err) {
+                                    db.run('ROLLBACK');
+                                    return res.status(500).json({ erro: 'Erro ao unificar contratos.' });
+                                }
+                                db.run('COMMIT');
+                                return res.status(201).json({
+                                    id: this.lastID,
+                                    unificado: true,
+                                    mensagem: 'Contratos unificados com sucesso! O histórico anterior foi preservado.'
+                                });
+                            }
+                        );
+                    });
+                    return;
+                }
+
+                // Fluxo normal (sem conflito no mesmo mês/dia)
+                const jurosTotais = valorBase * (plano.taxa / 100) * plano.parcelas;
+                const valorTotal = valorBase + jurosTotais;
+                const valorParcela = valorTotal / plano.parcelas;
+
+                db.run(
+                    `INSERT INTO contratos (cliente_id, plano_id, valor_base, valor_total, valor_parcela, parcelas_totais, parcelas_pagas, taxa_aplicada, status, data_primeiro_vencimento) 
+                     VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'ativo', ?)`,
+                    [clienteId, planoId, valorBase, valorTotal, valorParcela, plano.parcelas, plano.taxa, dataVencimento],
+                    function(err) {
+                        if (err) return res.status(400).json({ erro: 'Erro ao criar contrato. Verifique se o cliente existe.' });
+                        res.status(201).json({ id: this.lastID, mensagem: 'Contrato gerado com sucesso!' });
+                    }
+                );
+            }
+        );
+    });
+});
+
+// Nova rota: Revisar Taxa manualmente de um contrato
+app.patch('/api/contratos/:id/revisar-taxa', autenticarToken, (req, res) => {
+    const id = parseInt(req.params.id);
+    const novaTaxa = parseFloat(req.body.novaTaxa);
+
+    if (isNaN(novaTaxa) || novaTaxa < 0 || novaTaxa > 100) {
+        return res.status(400).json({ erro: 'Informe uma taxa válida entre 0% e 100%.' });
+    }
+
+    db.get('SELECT * FROM contratos WHERE id = ?', [id], (err, contrato) => {
+        if (err || !contrato) return res.status(404).json({ erro: 'Contrato não encontrado.' });
+
+        if ((contrato.status || 'ativo') === 'unificado') {
+            return res.status(400).json({ erro: 'Contratos já unificados são históricos e não podem ter taxa alterada.' });
+        }
+
+        const novosJuros = contrato.valor_base * (novaTaxa / 100) * contrato.parcelas_totais;
+        const novoValorTotal = contrato.valor_base + novosJuros;
+        const novoValorParcela = novoValorTotal / contrato.parcelas_totais;
 
         db.run(
-            `INSERT INTO contratos (cliente_id, plano_id, valor_base, valor_total, valor_parcela, parcelas_totais, parcelas_pagas, data_primeiro_vencimento) 
-             VALUES ($1, $2, $3, $4, $5, $6, 0, $7)`.replace(/\$\d+/g, '?'),
-            [clienteId, planoId, valorBase, valorTotal, valorParcela, plano.parcelas, dataVencimento],
+            `UPDATE contratos SET taxa_aplicada = ?, valor_total = ?, valor_parcela = ? WHERE id = ?`,
+            [novaTaxa, novoValorTotal, novoValorParcela, id],
             function(err) {
-                if (err) return res.status(400).json({ erro: 'Erro ao criar contrato. Verifique se o cliente existe.' });
-                res.status(201).json({ id: this.lastID, mensagem: 'Contrato gerado com sucesso!' });
+                if (err) return res.status(500).json({ erro: 'Erro ao atualizar a taxa do contrato.' });
+                res.json({
+                    mensagem: 'Taxa revisada e contrato recalculado com sucesso!',
+                    novaTaxa,
+                    novoValorTotal,
+                    novoValorParcela
+                });
             }
         );
     });
@@ -345,8 +483,12 @@ app.post('/api/contratos', autenticarToken, (req, res) => {
 
 app.patch('/api/contratos/:id/pagar-parcela', autenticarToken, (req, res) => {
     const id = parseInt(req.params.id);
-    db.get('SELECT parcelas_pagas, parcelas_totais, valor_parcela FROM contratos WHERE id = ?', [id], (err, contrato) => {
+    db.get('SELECT parcelas_pagas, parcelas_totais, valor_parcela, status FROM contratos WHERE id = ?', [id], (err, contrato) => {
         if (err || !contrato) return res.status(404).json({ erro: 'Contrato não encontrado.' });
+
+        if ((contrato.status || 'ativo') === 'unificado') {
+            return res.status(400).json({ erro: 'Este contrato foi unificado. Registre os pagamentos no contrato consolidado.' });
+        }
 
         if (contrato.parcelas_pagas >= contrato.parcelas_totais) {
             return res.status(400).json({ erro: 'Este contrato já está totalmente quitado.' });
@@ -391,8 +533,11 @@ app.get('/api/contratos/:id/pagamentos', autenticarToken, (req, res) => {
 
 app.delete('/api/contratos/:id/estornar-ultima', autenticarToken, (req, res) => {
     const id = parseInt(req.params.id);
-    db.get('SELECT parcelas_pagas FROM contratos WHERE id = ?', [id], (err, contrato) => {
+    db.get('SELECT parcelas_pagas, status FROM contratos WHERE id = ?', [id], (err, contrato) => {
         if (err || !contrato) return res.status(404).json({ erro: 'Contrato não encontrado.' });
+        if ((contrato.status || 'ativo') === 'unificado') {
+            return res.status(400).json({ erro: 'Contratos unificados são históricos e não permitem estorno.' });
+        }
         if (contrato.parcelas_pagas <= 0) {
             return res.status(400).json({ erro: 'Não há parcelas pagas para estornar neste contrato.' });
         }

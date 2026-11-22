@@ -140,9 +140,9 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Cliente</th>
+                                    <th>Contrato / Cliente</th>
                                     <th>Plano</th>
-                                    <th>Parcela</th>
+                                    <th>Total / Parcela</th>
                                     <th>Progresso</th>
                                     <th>Próx. Vencimento</th>
                                     <th>Status</th>
@@ -381,7 +381,7 @@
     <!-- MODAL DE FICHA E EXTRATO DO CLIENTE        -->
     <!-- ========================================== -->
     <div id="modal-cliente" class="modal-overlay" style="display: none;">
-        <div class="modal-box" style="max-width: 720px;">
+        <div class="modal-box" style="max-width: 740px;">
             <div class="modal-header">
                 <div>
                     <h2 id="modal-cliente-titulo" style="font-size: 1.15rem; margin-bottom: 4px;">Ficha e Extrato do Cliente</h2>
@@ -397,6 +397,63 @@
             <div class="modal-footer">
                 <button id="btn-fechar-modal-cliente-rodape" class="btn-secondary" style="width: auto; padding: 8px 16px;">Fechar</button>
             </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL DE CONFIRMAÇÃO DE UNIFICAÇÃO         -->
+    <!-- ========================================== -->
+    <div id="modal-unificacao" class="modal-overlay" style="display: none;">
+        <div class="modal-box" style="max-width: 560px;">
+            <div class="modal-header">
+                <div>
+                    <h2 style="font-size: 1.15rem; margin-bottom: 4px;">Unificação de Empréstimos Detectada</h2>
+                    <p style="font-size: 0.85rem; color: var(--text-muted);">Este cliente já possui um empréstimo ativo com vencimento no mesmo mês e dia.</p>
+                </div>
+                <button id="btn-fechar-modal-unificacao" class="btn-fechar-modal" title="Fechar">&times;</button>
+            </div>
+
+            <div id="modal-unificacao-conteudo" class="modal-body" style="font-size: 0.92rem; line-height: 1.55;">
+                <!-- Preenchido dinamicamente pelo JS -->
+            </div>
+
+            <div class="modal-footer">
+                <button id="btn-cancelar-unificacao" class="btn-secondary" style="width: auto; padding: 8px 16px;">Cancelar</button>
+                <button id="btn-confirmar-unificacao" class="btn-primary">Confirmar e Unificar Empréstimos</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL REVISAR TAXA MANUALMENTE             -->
+    <!-- ========================================== -->
+    <div id="modal-revisar-taxa" class="modal-overlay" style="display: none;">
+        <div class="modal-box" style="max-width: 480px;">
+            <div class="modal-header">
+                <div>
+                    <h2 id="modal-taxa-titulo" style="font-size: 1.15rem; margin-bottom: 4px;">Revisar Taxa do Contrato</h2>
+                    <p id="modal-taxa-subtitulo" style="font-size: 0.85rem; color: var(--text-muted);"></p>
+                </div>
+                <button id="btn-fechar-modal-taxa" class="btn-fechar-modal" title="Fechar">&times;</button>
+            </div>
+
+            <form id="form-revisar-taxa">
+                <div class="modal-body">
+                    <div class="form-group" style="margin-bottom: 14px;">
+                        <label for="input-nova-taxa-contrato">Nova Taxa de Juros Mensal (%)</label>
+                        <input type="number" id="input-nova-taxa-contrato" min="0" max="100" step="0.01" required>
+                    </div>
+
+                    <div id="simulacao-nova-taxa" style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; font-size: 0.88rem; color: #1E293B;">
+                        <!-- Simulação em tempo real -->
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" id="btn-cancelar-taxa" class="btn-secondary" style="width: auto; padding: 8px 16px;">Cancelar</button>
+                    <button type="submit" class="btn-primary">Salvar Nova Taxa</button>
+                </div>
+            </form>
         </div>
     </div>
 

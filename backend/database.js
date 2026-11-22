@@ -57,6 +57,10 @@ db.serialize(() => {
             valor_parcela REAL NOT NULL,
             parcelas_totais INTEGER NOT NULL,
             parcelas_pagas INTEGER DEFAULT 0,
+            taxa_aplicada REAL,
+            status TEXT DEFAULT 'ativo',
+            contrato_origem_id INTEGER DEFAULT NULL,
+            observacao TEXT DEFAULT '',
             data_primeiro_vencimento TEXT,
             data_criacao TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (cliente_id) REFERENCES clientes(id),
@@ -77,6 +81,10 @@ db.serialize(() => {
 
     // Migrações seguras para bancos já existentes
     db.run(`ALTER TABLE contratos ADD COLUMN data_primeiro_vencimento TEXT`, () => {});
+    db.run(`ALTER TABLE contratos ADD COLUMN taxa_aplicada REAL`, () => {});
+    db.run(`ALTER TABLE contratos ADD COLUMN status TEXT DEFAULT 'ativo'`, () => {});
+    db.run(`ALTER TABLE contratos ADD COLUMN contrato_origem_id INTEGER DEFAULT NULL`, () => {});
+    db.run(`ALTER TABLE contratos ADD COLUMN observacao TEXT DEFAULT ''`, () => {});
     db.run(`ALTER TABLE planos ADD COLUMN valor REAL DEFAULT 0`, () => {});
     db.run(`ALTER TABLE clientes ADD COLUMN cep TEXT DEFAULT ''`, () => {});
     db.run(`ALTER TABLE clientes ADD COLUMN rua TEXT DEFAULT ''`, () => {});
@@ -86,22 +94,12 @@ db.serialize(() => {
     db.run(`ALTER TABLE clientes ADD COLUMN cidade TEXT DEFAULT ''`, () => {});
     db.run(`ALTER TABLE clientes ADD COLUMN uf TEXT DEFAULT ''`, () => {});
 
-    // Migração retroativa de pagamentos
-    db.all('SELECT id, parcelas_pagas, valor_parcela FROM contratos WHERE parcelas_pagas > 0', (err, rows) => {
-        if (!err && rows) {
-            rows.forEach((c) => {
-                db.get('SELECT COUNT(*) as total FROM pagamentos WHERE contrato_id = ?', [c.id], (err, countRow) => {
-                    if (!err && countRow.total === 0) {
-                        const stmt = db.prepare('INSERT INTO pagamentos (contrato_id, numero_parcela, valor_pago) VALUES (?, ?, ?)');
-                        for (let i = 1; i <= c.parcelas_pagas; i++) {
-                            stmt.run(c.id, i, c.valor_parcela);
-                        }
-                        stmt.finalize();
-                    }
-                });
-            });
-        }
-    });
+    // Preenche taxa_aplicada nos contratos antigos onde estiver nula
+    db.run(`
+        UPDATE contratos 
+        SET taxa_aplicada = (SELECT taxa FROM planos WHERE planos.id = contratos.plano_id)
+        WHERE taxa_aplicada IS NULL
+    `);
 
     db.get('SELECT COUNT(*) as total FROM planos', (err, row) => {
         if (!err && row.total === 0) {

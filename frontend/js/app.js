@@ -35,7 +35,10 @@ async function requisicaoAPI(endpoint, opcoes = {}) {
 
     const dados = await resposta.json();
     if (!resposta.ok) {
-        throw new Error(dados.erro || 'Erro na comunicação com o servidor.');
+        const erroObj = new Error(dados.erro || 'Erro na comunicação com o servidor.');
+        erroObj.status = resposta.status;
+        erroObj.dados = dados;
+        throw erroObj;
     }
 
     return dados;
@@ -250,7 +253,6 @@ const inputClienteBairro = document.getElementById('cliente-bairro');
 const inputClienteCidade = document.getElementById('cliente-cidade');
 const inputClienteUf = document.getElementById('cliente-uf');
 
-// Elementos do Modal de Ficha e Extrato do Cliente
 const modalCliente = document.getElementById('modal-cliente');
 const modalClienteTitulo = document.getElementById('modal-cliente-titulo');
 const modalClienteSubtitulo = document.getElementById('modal-cliente-subtitulo');
@@ -273,7 +275,6 @@ function abrirExtratoCliente(cliente) {
     modalClienteSubtitulo.textContent = `CPF: ${mascararCPF(cliente.cpf)} • WhatsApp: ${formatarTelefone(cliente.whatsapp)}`;
     modalClienteConteudo.innerHTML = '';
 
-    // Bloco 1: Endereço Completo e Dados Cadastrais
     const boxEndereco = document.createElement('div');
     boxEndereco.style.backgroundColor = '#F8FAFC';
     boxEndereco.style.border = '1px solid #E2E8F0';
@@ -297,12 +298,11 @@ function abrirExtratoCliente(cliente) {
     boxEndereco.appendChild(textoEnd);
     modalClienteConteudo.appendChild(boxEndereco);
 
-    // Bloco 2: Empréstimos Solicitados pelo Cliente
     const tituloContratos = document.createElement('strong');
     tituloContratos.style.display = 'block';
     tituloContratos.style.marginBottom = '10px';
     tituloContratos.style.color = '#0F172A';
-    tituloContratos.textContent = `Empréstimos Solicitados (${contratosDoCliente.length})`;
+    tituloContratos.textContent = `Histórico Independente de Empréstimos Solicitados (${contratosDoCliente.length})`;
     modalClienteConteudo.appendChild(tituloContratos);
 
     if (contratosDoCliente.length === 0) {
@@ -319,7 +319,7 @@ function abrirExtratoCliente(cliente) {
                 <tr>
                     <th>Contrato</th>
                     <th>Plano</th>
-                    <th>Valor Solicitado</th>
+                    <th>Capital Base</th>
                     <th>Total c/ Juros</th>
                     <th>Parcelas</th>
                     <th>Situação</th>
@@ -330,15 +330,23 @@ function abrirExtratoCliente(cliente) {
 
         contratosDoCliente.forEach((c) => {
             const pagas = c.parcelasPagas || 0;
+            const ehUnificado = (c.status || 'ativo') === 'unificado';
             const quitado = pagas >= c.parcelas;
             const infoVenc = calcularProximoVencimento(c.dataPrimeiroVencimento, pagas);
-            const atrasado = !quitado && infoVenc.atrasado;
+            const atrasado = !ehUnificado && !quitado && infoVenc.atrasado;
 
             const tr = document.createElement('tr');
 
             const tdId = document.createElement('td');
             tdId.style.fontWeight = '600';
             tdId.textContent = `#CTR-${String(c.id).padStart(4, '0')}`;
+            if (c.contratoOrigemId) {
+                const tagOrigem = document.createElement('div');
+                tagOrigem.style.fontSize = '0.72rem';
+                tagOrigem.style.color = '#2563EB';
+                tagOrigem.textContent = `(Unificou #CTR-${String(c.contratoOrigemId).padStart(4, '0')})`;
+                tdId.appendChild(tagOrigem);
+            }
 
             const tdPlano = document.createElement('td');
             tdPlano.textContent = `${c.plano} (${c.taxa}% a.m.)`;
@@ -354,7 +362,12 @@ function abrirExtratoCliente(cliente) {
 
             const tdStatus = document.createElement('td');
             const badge = document.createElement('span');
-            if (quitado) {
+            if (ehUnificado) {
+                badge.className = 'status-badge';
+                badge.style.backgroundColor = '#E0E7FF';
+                badge.style.color = '#3730A3';
+                badge.textContent = 'Unificado';
+            } else if (quitado) {
                 badge.className = 'status-badge status-quitado';
                 badge.textContent = 'Quitado';
             } else if (atrasado) {
@@ -721,7 +734,7 @@ formPlano.addEventListener('submit', async (evento) => {
 });
 
 // ==========================================
-// 5. MÓDULO DE EMPRÉSTIMOS, LUCROS E RECIBOS
+// 5. MÓDULO DE EMPRÉSTIMOS, UNIFICAÇÃO, REVISÃO DE TAXA E RECIBOS
 // ==========================================
 const formEmprestimo = document.getElementById('form-emprestimo');
 const tabelaContratos = document.getElementById('tabela-contratos');
@@ -894,7 +907,9 @@ async function abrirHistoricoPagamentos(contrato) {
             return;
         }
 
-        btnEstornarUltima.style.display = 'inline-block';
+        if ((contrato.status || 'ativo') !== 'unificado') {
+            btnEstornarUltima.style.display = 'inline-block';
+        }
 
         const tabela = document.createElement('table');
         tabela.innerHTML = `
@@ -962,7 +977,80 @@ btnEstornarUltima.addEventListener('click', async () => {
 });
 
 // ==========================================
-// 5.2 GERADOR DE CONTRATO E DEMONSTRATIVO EM PDF
+// 5.2 MODAL DE REVISÃO MANUAL DE TAXA
+// ==========================================
+const modalRevisarTaxa = document.getElementById('modal-revisar-taxa');
+const modalTaxaTitulo = document.getElementById('modal-taxa-titulo');
+const modalTaxaSubtitulo = document.getElementById('modal-taxa-subtitulo');
+const inputNovaTaxaContrato = document.getElementById('input-nova-taxa-contrato');
+const boxSimulacaoTaxa = document.getElementById('simulacao-nova-taxa');
+const formRevisarTaxa = document.getElementById('form-revisar-taxa');
+
+let contratoRevisandoTaxa = null;
+
+function fecharModalRevisarTaxa() {
+    modalRevisarTaxa.style.display = 'none';
+    contratoRevisandoTaxa = null;
+}
+
+document.getElementById('btn-fechar-modal-taxa').addEventListener('click', fecharModalRevisarTaxa);
+document.getElementById('btn-cancelar-taxa').addEventListener('click', fecharModalRevisarTaxa);
+modalRevisarTaxa.addEventListener('click', (e) => {
+    if (e.target === modalRevisarTaxa) fecharModalRevisarTaxa();
+});
+
+function atualizarSimulacaoNovaTaxa() {
+    if (!contratoRevisandoTaxa) return;
+    const novaTaxa = parseFloat(inputNovaTaxaContrato.value);
+    if (isNaN(novaTaxa) || novaTaxa < 0) {
+        boxSimulacaoTaxa.textContent = 'Digite uma taxa válida para visualizar o recálculo.';
+        return;
+    }
+
+    const base = contratoRevisandoTaxa.valorBase;
+    const parcelas = contratoRevisandoTaxa.parcelas;
+    const juros = base * (novaTaxa / 100) * parcelas;
+    const total = base + juros;
+    const parcela = total / parcelas;
+
+    boxSimulacaoTaxa.innerHTML = `
+        <div style="margin-bottom: 4px;"><strong>Capital Base Consolidado:</strong> ${formatarMoeda(base)}</div>
+        <div style="margin-bottom: 4px;"><strong>Novo Valor Total (${parcelas}x):</strong> ${formatarMoeda(total)}</div>
+        <div style="color: #059669; font-weight: 600;"><strong>Nova Parcela Mensal:</strong> ${formatarMoeda(parcela)}</div>
+    `;
+}
+
+inputNovaTaxaContrato.addEventListener('input', atualizarSimulacaoNovaTaxa);
+
+function abrirModalRevisarTaxa(contrato) {
+    contratoRevisandoTaxa = contrato;
+    modalTaxaTitulo.textContent = `Revisar Taxa — #CTR-${String(contrato.id).padStart(4, '0')}`;
+    modalTaxaSubtitulo.textContent = `${contrato.cliente} • Taxa atual: ${contrato.taxa}% a.m.`;
+    inputNovaTaxaContrato.value = contrato.taxa;
+    atualizarSimulacaoNovaTaxa();
+    modalRevisarTaxa.style.display = 'flex';
+}
+
+formRevisarTaxa.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+    if (!contratoRevisandoTaxa) return;
+
+    const novaTaxa = parseFloat(inputNovaTaxaContrato.value);
+    try {
+        await requisicaoAPI(`/contratos/${contratoRevisandoTaxa.id}/revisar-taxa`, {
+            method: 'PATCH',
+            body: JSON.stringify({ novaTaxa })
+        });
+        fecharModalRevisarTaxa();
+        await carregarTodosOsDados();
+        alert('Taxa revisada e valores do contrato recalculados com sucesso!');
+    } catch (erro) {
+        alert(erro.message);
+    }
+});
+
+// ==========================================
+// 5.3 GERADOR DE CONTRATO E DEMONSTRATIVO EM PDF
 // ==========================================
 async function gerarContratoPDF(contrato) {
     if (!window.jspdf) {
@@ -983,12 +1071,13 @@ async function gerarContratoPDF(contrato) {
     const pagas = contrato.parcelasPagas || 0;
     const valorJaPago = pagas * contrato.valorParcela;
     const saldoRestante = Math.max(0, contrato.valorTotal - valorJaPago);
+    const ehUnificado = (contrato.status || 'ativo') === 'unificado';
     const quitado = pagas >= contrato.parcelas;
     const infoVencimento = calcularProximoVencimento(contrato.dataPrimeiroVencimento, pagas);
 
-    const statusTexto = quitado
-        ? 'QUITADO'
-        : (infoVencimento.atrasado ? 'EM ATRASO' : 'EM DIA');
+    const statusTexto = ehUnificado
+        ? 'UNIFICADO EM NOVO CONTRATO'
+        : (quitado ? 'QUITADO' : (infoVencimento.atrasado ? 'EM ATRASO' : 'EM DIA'));
 
     doc.setFillColor(15, 23, 42);
     doc.rect(0, 0, 210, 26, 'F');
@@ -1034,28 +1123,37 @@ async function gerarContratoPDF(contrato) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.5);
     doc.text(`Plano Selecionado: ${contrato.plano} (${contrato.taxa}% a.m.)`, 14, 70 + offsetEndereco);
-    doc.text(`Capital Liberado: ${formatarMoeda(contrato.valorBase)}`, 115, 70 + offsetEndereco);
+    doc.text(`Capital Consolidado: ${formatarMoeda(contrato.valorBase)}`, 115, 70 + offsetEndereco);
     doc.text(`Valor Total do Contrato: ${formatarMoeda(contrato.valorTotal)} (${contrato.parcelas}x de ${formatarMoeda(contrato.valorParcela)})`, 14, 75.5 + offsetEndereco);
+
+    let offsetObs = 0;
+    if (contrato.observacao) {
+        doc.setFontSize(8.5);
+        doc.setTextColor(37, 99, 235);
+        doc.text(`Observação: ${contrato.observacao}`, 14, 80.5 + offsetEndereco);
+        doc.setTextColor(15, 23, 42);
+        offsetObs = 5;
+    }
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10.5);
-    doc.text('3. DEMONSTRATIVO DE PAGAMENTO E CRONOGRAMA DE PARCELAS', 14, 85 + offsetEndereco);
-    doc.line(14, 87 + offsetEndereco, 196, 87 + offsetEndereco);
+    doc.text('3. DEMONSTRATIVO DE PAGAMENTO E CRONOGRAMA DE PARCELAS', 14, 85 + offsetEndereco + offsetObs);
+    doc.line(14, 87 + offsetEndereco + offsetObs, 196, 87 + offsetEndereco + offsetObs);
 
     doc.setFillColor(248, 250, 252);
-    doc.rect(14, 90 + offsetEndereco, 182, 21, 'F');
+    doc.rect(14, 90 + offsetEndereco + offsetObs, 182, 21, 'F');
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.5);
-    doc.text(`Parcelas Pagas até o momento: ${pagas} de ${contrato.parcelas} (${formatarMoeda(valorJaPago)})`, 18, 96 + offsetEndereco);
-    doc.text(`Parcelas Restantes: ${Math.max(0, contrato.parcelas - pagas)} parcela(s)`, 125, 96 + offsetEndereco);
+    doc.text(`Parcelas Pagas até o momento: ${pagas} de ${contrato.parcelas} (${formatarMoeda(valorJaPago)})`, 18, 96 + offsetEndereco + offsetObs);
+    doc.text(`Parcelas Restantes: ${Math.max(0, contrato.parcelas - pagas)} parcela(s)`, 125, 96 + offsetEndereco + offsetObs);
 
     doc.setFont('helvetica', 'bold');
-    doc.text(`Saldo Devedor Restante: ${formatarMoeda(saldoRestante)}`, 18, 102 + offsetEndereco);
-    doc.text(`Situação Atual: ${statusTexto}`, 125, 102 + offsetEndereco);
-    doc.text(`Próximo Vencimento: ${quitado ? 'Contrato Quitado' : infoVencimento.dataFormatada}`, 18, 108 + offsetEndereco);
+    doc.text(`Saldo Devedor Restante: ${ehUnificado ? 'R$ 0,00 (Unificado)' : formatarMoeda(saldoRestante)}`, 18, 102 + offsetEndereco + offsetObs);
+    doc.text(`Situação Atual: ${statusTexto}`, 125, 102 + offsetEndereco + offsetObs);
+    doc.text(`Próximo Vencimento: ${ehUnificado || quitado ? 'Encerrado' : infoVencimento.dataFormatada}`, 18, 108 + offsetEndereco + offsetObs);
 
-    let y = 119 + offsetEndereco;
+    let y = 119 + offsetEndereco + offsetObs;
 
     doc.setFillColor(226, 232, 240);
     doc.rect(14, y - 4.5, 182, 6.5, 'F');
@@ -1092,10 +1190,10 @@ async function gerarContratoPDF(contrato) {
             doc.text('Paga', 165, y);
         } else {
             const vencParcela = calcularProximoVencimento(contrato.dataPrimeiroVencimento, i - 1);
-            const statusParcela = vencParcela.atrasado ? 'Atrasada' : 'Em Aberto';
+            const statusParcela = ehUnificado ? 'Unificada' : (vencParcela.atrasado ? 'Atrasada' : 'Em Aberto');
 
             doc.setFont('helvetica', 'normal');
-            doc.setTextColor(vencParcela.atrasado ? 185 : 30, vencParcela.atrasado ? 28 : 41, vencParcela.atrasado ? 28 : 59);
+            doc.setTextColor(vencParcela.atrasado && !ehUnificado ? 185 : 30, vencParcela.atrasado && !ehUnificado ? 28 : 41, vencParcela.atrasado && !ehUnificado ? 28 : 59);
             doc.text(`${i}ª de ${contrato.parcelas}`, 18, y);
             doc.text(formatarMoeda(contrato.valorParcela), 55, y);
             doc.text(`Vence em ${vencParcela.dataFormatada}`, 95, y);
@@ -1154,14 +1252,18 @@ function atualizarContratosNaTela() {
 
     contratos.forEach((contrato) => {
         const pagas = contrato.parcelasPagas || 0;
+        const ehUnificado = (contrato.status || 'ativo') === 'unificado';
         const valorJaPago = pagas * contrato.valorParcela;
-        const saldoRestante = Math.max(0, contrato.valorTotal - valorJaPago);
+        const saldoRestante = ehUnificado ? 0 : Math.max(0, contrato.valorTotal - valorJaPago);
 
         const capitalPorParcela = contrato.valorBase / contrato.parcelas;
         const lucroPorParcela = Math.max(0, contrato.valorParcela - capitalPorParcela);
         const lucroRealizadoContrato = pagas * lucroPorParcela;
 
-        somaEmprestado += contrato.valorBase;
+        // Evita contar duas vezes o capital que migrou para o contrato unificado
+        if (!ehUnificado) {
+            somaEmprestado += contrato.valorBase;
+        }
         somaRecebido += valorJaPago;
         somaAReceber += saldoRestante;
         somaLucroGeral += lucroRealizadoContrato;
@@ -1172,24 +1274,38 @@ function atualizarContratosNaTela() {
 
         const quitado = pagas >= contrato.parcelas;
         const infoVencimento = calcularProximoVencimento(contrato.dataPrimeiroVencimento, pagas);
-        const estaAtrasado = !quitado && infoVencimento.atrasado;
+        const estaAtrasado = !ehUnificado && !quitado && infoVencimento.atrasado;
 
         const tr = document.createElement('tr');
+        if (ehUnificado) {
+            tr.style.opacity = '0.72';
+            tr.style.backgroundColor = '#F8FAFC';
+        }
 
         const tdCliente = document.createElement('td');
-        tdCliente.textContent = contrato.cliente;
+        const tituloCtr = document.createElement('strong');
+        tituloCtr.textContent = `#CTR-${String(contrato.id).padStart(4, '0')} • ${contrato.cliente}`;
+        tdCliente.appendChild(tituloCtr);
+
+        if (contrato.contratoOrigemId) {
+            const subUnif = document.createElement('div');
+            subUnif.style.fontSize = '0.75rem';
+            subUnif.style.color = '#2563EB';
+            subUnif.textContent = `Unificou #CTR-${String(contrato.contratoOrigemId).padStart(4, '0')} + Novo`;
+            tdCliente.appendChild(subUnif);
+        }
 
         const tdPlano = document.createElement('td');
         tdPlano.textContent = `${contrato.plano} (${contrato.taxa}% a.m.)`;
 
         const tdParcela = document.createElement('td');
-        tdParcela.textContent = formatarMoeda(contrato.valorParcela);
+        tdParcela.innerHTML = `<strong>${formatarMoeda(contrato.valorTotal)}</strong><div style="font-size:0.78rem; color:#64748B;">${contrato.parcelas}x de ${formatarMoeda(contrato.valorParcela)}</div>`;
 
         const tdProgresso = document.createElement('td');
         tdProgresso.textContent = `${pagas} de ${contrato.parcelas} pagas`;
 
         const tdVencimento = document.createElement('td');
-        tdVencimento.textContent = quitado ? '—' : infoVencimento.dataFormatada;
+        tdVencimento.textContent = (ehUnificado || quitado) ? '—' : infoVencimento.dataFormatada;
         if (estaAtrasado) {
             tdVencimento.style.color = '#B91C1C';
             tdVencimento.style.fontWeight = '600';
@@ -1197,7 +1313,12 @@ function atualizarContratosNaTela() {
 
         const tdStatus = document.createElement('td');
         const badgeStatus = document.createElement('span');
-        if (quitado) {
+        if (ehUnificado) {
+            badgeStatus.className = 'status-badge';
+            badgeStatus.style.backgroundColor = '#E0E7FF';
+            badgeStatus.style.color = '#3730A3';
+            badgeStatus.textContent = 'Unificado';
+        } else if (quitado) {
             badgeStatus.className = 'status-badge status-quitado';
             badgeStatus.textContent = 'Quitado';
         } else if (estaAtrasado) {
@@ -1212,13 +1333,24 @@ function atualizarContratosNaTela() {
         const tdAcao = document.createElement('td');
         tdAcao.className = 'acoes-cell';
 
-        if (!quitado) {
+        if (!ehUnificado && !quitado) {
             const btnPagar = document.createElement('button');
             btnPagar.className = 'btn-pagar';
             btnPagar.textContent = '+1 Pago';
             btnPagar.title = 'Registrar pagamento de 1 parcela';
             btnPagar.onclick = () => registrarPagamentoParcela(contrato.id);
             tdAcao.appendChild(btnPagar);
+        }
+
+        if (!ehUnificado) {
+            const btnRevisarTaxa = document.createElement('button');
+            btnRevisarTaxa.className = 'btn-extrato';
+            btnRevisarTaxa.style.backgroundColor = '#FEF3C7';
+            btnRevisarTaxa.style.color = '#92400E';
+            btnRevisarTaxa.textContent = 'Revisar Taxa';
+            btnRevisarTaxa.title = 'Editar manualmente a taxa de juros deste empréstimo';
+            btnRevisarTaxa.onclick = () => abrirModalRevisarTaxa(contrato);
+            tdAcao.appendChild(btnRevisarTaxa);
         }
 
         const btnExtrato = document.createElement('button');
@@ -1239,11 +1371,11 @@ function atualizarContratosNaTela() {
         linkZap.rel = 'noopener noreferrer';
         linkZap.textContent = 'WhatsApp';
 
-        const textoStatusZap = quitado
-            ? 'QUITADO ✅'
-            : (estaAtrasado ? `ATRASADO ⚠️ (Venceu em ${infoVencimento.dataFormatada})` : `EM DIA (Próx. vencimento: ${infoVencimento.dataFormatada})`);
+        const textoStatusZap = ehUnificado
+            ? 'UNIFICADO EM NOVO CONTRATO'
+            : (quitado ? 'QUITADO ✅' : (estaAtrasado ? `ATRASADO ⚠️ (Venceu em ${infoVencimento.dataFormatada})` : `EM DIA (Próx. vencimento: ${infoVencimento.dataFormatada})`));
 
-        const mensagem = `Olá *${contrato.cliente}*, segue o resumo atualizado do seu contrato:\n\n` +
+        const mensagem = `Olá *${contrato.cliente}*, segue o resumo atualizado do contrato *#CTR-${String(contrato.id).padStart(4, '0')}*:\n\n` +
                          `📋 *Plano:* ${contrato.plano} (${contrato.taxa}% a.m.)\n` +
                          `💳 *Valor da Parcela:* ${formatarMoeda(contrato.valorParcela)}\n` +
                          `📊 *Progresso:* ${pagas} de ${contrato.parcelas} parcelas pagas\n` +
@@ -1291,6 +1423,59 @@ async function excluirContrato(idContrato) {
     }
 }
 
+// ==========================================
+// 5.4 SUBMISSÃO DE NOVO EMPRÉSTIMO E MODAL DE UNIFICAÇÃO
+// ==========================================
+const modalUnificacao = document.getElementById('modal-unificacao');
+const modalUnificacaoConteudo = document.getElementById('modal-unificacao-conteudo');
+let payloadPendenteUnificacao = null;
+
+function fecharModalUnificacao() {
+    modalUnificacao.style.display = 'none';
+    payloadPendenteUnificacao = null;
+}
+
+document.getElementById('btn-fechar-modal-unificacao').addEventListener('click', fecharModalUnificacao);
+document.getElementById('btn-cancelar-unificacao').addEventListener('click', fecharModalUnificacao);
+
+async function enviarCriacaoContrato(payload) {
+    const resposta = await requisicaoAPI('/contratos', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+    });
+
+    formEmprestimo.reset();
+    definirDataPadraoFormulario();
+    preencherValorDoPlanoSelecionado();
+    await carregarTodosOsDados();
+
+    const novoContrato = contratos.find(c => c.id === resposta.id);
+    if (novoContrato) {
+        await gerarContratoPDF(novoContrato);
+
+        const infoVenc = calcularProximoVencimento(novoContrato.dataPrimeiroVencimento, 0);
+        const msgInicial = `Olá *${novoContrato.cliente}*, seu contrato *#CTR-${String(novoContrato.id).padStart(4, '0')}* foi gerado com sucesso!\n\n` +
+                           `📋 *Plano:* ${novoContrato.plano} (${novoContrato.taxa}% a.m.)\n` +
+                           `💳 *Parcelas:* ${novoContrato.parcelas}x de ${formatarMoeda(novoContrato.valorParcela)}\n` +
+                           `📅 *1º Vencimento:* ${infoVenc.dataFormatada}\n\n` +
+                           `Segue em anexo o documento oficial do seu contrato em PDF.`;
+
+        window.open(`https://wa.me/55${novoContrato.whatsapp}?text=${encodeURIComponent(msgInicial)}`, '_blank', 'noopener,noreferrer');
+    }
+}
+
+document.getElementById('btn-confirmar-unificacao').addEventListener('click', async () => {
+    if (!payloadPendenteUnificacao) return;
+    const payloadConfirmado = { ...payloadPendenteUnificacao, confirmarUnificacao: true };
+    fecharModalUnificacao();
+
+    try {
+        await enviarCriacaoContrato(payloadConfirmado);
+    } catch (erro) {
+        alert(erro.message);
+    }
+});
+
 formEmprestimo.addEventListener('submit', async (evento) => {
     evento.preventDefault();
 
@@ -1310,30 +1495,37 @@ formEmprestimo.addEventListener('submit', async (evento) => {
         return;
     }
 
+    const payload = { clienteId, planoId, valorBase, dataPrimeiroVencimento, confirmarUnificacao: false };
+
     try {
-        const resposta = await requisicaoAPI('/contratos', {
-            method: 'POST',
-            body: JSON.stringify({ clienteId, planoId, valorBase, dataPrimeiroVencimento })
-        });
-        formEmprestimo.reset();
-        definirDataPadraoFormulario();
-        preencherValorDoPlanoSelecionado();
-        await carregarTodosOsDados();
-
-        const novoContrato = contratos.find(c => c.id === resposta.id);
-        if (novoContrato) {
-            await gerarContratoPDF(novoContrato);
-
-            const infoVenc = calcularProximoVencimento(novoContrato.dataPrimeiroVencimento, 0);
-            const msgInicial = `Olá *${novoContrato.cliente}*, seu contrato *#CTR-${String(novoContrato.id).padStart(4, '0')}* foi gerado com sucesso!\n\n` +
-                               `📋 *Plano:* ${novoContrato.plano} (${novoContrato.taxa}% a.m.)\n` +
-                               `💳 *Parcelas:* ${novoContrato.parcelas}x de ${formatarMoeda(novoContrato.valorParcela)}\n` +
-                               `📅 *1º Vencimento:* ${infoVenc.dataFormatada}\n\n` +
-                               `Segue em anexo o documento oficial do seu contrato em PDF.`;
-
-            window.open(`https://wa.me/55${novoContrato.whatsapp}?text=${encodeURIComponent(msgInicial)}`, '_blank', 'noopener,noreferrer');
-        }
+        await enviarCriacaoContrato(payload);
     } catch (erro) {
+        if (erro.status === 409 && erro.dados && erro.dados.requerUnificacao) {
+            const info = erro.dados;
+            const ant = info.contratoAnterior;
+            payloadPendenteUnificacao = payload;
+
+            modalUnificacaoConteudo.innerHTML = `
+                <p style="margin-bottom: 12px;">
+                    O cliente já possui o contrato ativo <strong>#CTR-${String(ant.id).padStart(4, '0')}</strong> 
+                    (${ant.parcelasPagas}/${ant.parcelasTotais} parcelas pagas) com vencimento no mesmo mês e dia selecionado.
+                </p>
+                <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+                    <div>• <strong>Saldo de Capital Anterior Restante:</strong> ${formatarMoeda(ant.saldoCapitalRestante)}</div>
+                    <div>• <strong>Novo Valor Solicitado:</strong> ${formatarMoeda(info.novoValorSolicitado)}</div>
+                    <div style="margin-top: 6px; color: #059669; font-weight: 700;">
+                        • Novo Capital Consolidado: ${formatarMoeda(info.valorBaseUnificado)}
+                    </div>
+                </div>
+                <p style="font-size: 0.84rem; color: #64748B;">
+                    Ao confirmar, o contrato <strong>#CTR-${String(ant.id).padStart(4, '0')}</strong> será mantido no histórico como <strong>Unificado</strong> 
+                    e será gerado um novo contrato somando os dois valores. Depois você poderá clicar em <strong>Revisar Taxa</strong> se quiser ajustar os juros.
+                </p>
+            `;
+            modalUnificacao.style.display = 'flex';
+            return;
+        }
+
         alert(erro.message);
     }
 });
