@@ -234,7 +234,7 @@
                                     <th>CPF (Mascarado)</th>
                                     <th>WhatsApp</th>
                                     <th>Endereço</th>
-                                    <th>Ação</th>
+                                    <th>Ações</th>
                                 </tr>
                             </thead>
                             <tbody id="tabela-clientes"></tbody>
@@ -373,6 +373,29 @@
             <div class="modal-footer">
                 <button id="btn-estornar-ultima" class="btn-danger" style="display: none;">Estornar Última Parcela</button>
                 <button id="btn-fechar-modal-rodape" class="btn-secondary" style="width: auto; padding: 8px 16px;">Fechar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL DE FICHA E EXTRATO DO CLIENTE        -->
+    <!-- ========================================== -->
+    <div id="modal-cliente" class="modal-overlay" style="display: none;">
+        <div class="modal-box" style="max-width: 720px;">
+            <div class="modal-header">
+                <div>
+                    <h2 id="modal-cliente-titulo" style="font-size: 1.15rem; margin-bottom: 4px;">Ficha e Extrato do Cliente</h2>
+                    <p id="modal-cliente-subtitulo" style="font-size: 0.85rem; color: var(--text-muted);"></p>
+                </div>
+                <button id="btn-fechar-modal-cliente" class="btn-fechar-modal" title="Fechar">&times;</button>
+            </div>
+
+            <div id="modal-cliente-conteudo" class="modal-body">
+                <!-- Preenchido dinamicamente pelo JS -->
+            </div>
+
+            <div class="modal-footer">
+                <button id="btn-fechar-modal-cliente-rodape" class="btn-secondary" style="width: auto; padding: 8px 16px;">Fechar</button>
             </div>
         </div>
     </div>

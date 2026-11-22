@@ -234,7 +234,7 @@ document.getElementById('input-importar-backup').addEventListener('change', (eve
 });
 
 // ==========================================
-// 3. MÓDULO DE CLIENTES, MÁSCARAS E ENDEREÇO
+// 3. MÓDULO DE CLIENTES, MÁSCARAS, ENDEREÇO E EXTRATO
 // ==========================================
 const formCliente = document.getElementById('form-cliente');
 const tabelaClientes = document.getElementById('tabela-clientes');
@@ -249,6 +249,138 @@ const inputClienteComplemento = document.getElementById('cliente-complemento');
 const inputClienteBairro = document.getElementById('cliente-bairro');
 const inputClienteCidade = document.getElementById('cliente-cidade');
 const inputClienteUf = document.getElementById('cliente-uf');
+
+// Elementos do Modal de Ficha e Extrato do Cliente
+const modalCliente = document.getElementById('modal-cliente');
+const modalClienteTitulo = document.getElementById('modal-cliente-titulo');
+const modalClienteSubtitulo = document.getElementById('modal-cliente-subtitulo');
+const modalClienteConteudo = document.getElementById('modal-cliente-conteudo');
+
+function fecharModalCliente() {
+    modalCliente.style.display = 'none';
+}
+
+document.getElementById('btn-fechar-modal-cliente').addEventListener('click', fecharModalCliente);
+document.getElementById('btn-fechar-modal-cliente-rodape').addEventListener('click', fecharModalCliente);
+modalCliente.addEventListener('click', (e) => {
+    if (e.target === modalCliente) fecharModalCliente();
+});
+
+function abrirExtratoCliente(cliente) {
+    const contratosDoCliente = contratos.filter(c => c.clienteId === cliente.id);
+
+    modalClienteTitulo.textContent = `Extrato do Cliente — ${cliente.nome}`;
+    modalClienteSubtitulo.textContent = `CPF: ${mascararCPF(cliente.cpf)} • WhatsApp: ${formatarTelefone(cliente.whatsapp)}`;
+    modalClienteConteudo.innerHTML = '';
+
+    // Bloco 1: Endereço Completo e Dados Cadastrais
+    const boxEndereco = document.createElement('div');
+    boxEndereco.style.backgroundColor = '#F8FAFC';
+    boxEndereco.style.border = '1px solid #E2E8F0';
+    boxEndereco.style.borderRadius = '8px';
+    boxEndereco.style.padding = '14px';
+    boxEndereco.style.marginBottom = '18px';
+    boxEndereco.style.fontSize = '0.9rem';
+
+    const tituloEnd = document.createElement('strong');
+    tituloEnd.style.display = 'block';
+    tituloEnd.style.marginBottom = '6px';
+    tituloEnd.style.color = '#0F172A';
+    tituloEnd.textContent = 'Endereço Residencial Cadastrado';
+
+    const textoEnd = document.createElement('p');
+    textoEnd.style.margin = '0';
+    textoEnd.style.color = '#334155';
+    textoEnd.textContent = formatarEnderecoCompleto(cliente);
+
+    boxEndereco.appendChild(tituloEnd);
+    boxEndereco.appendChild(textoEnd);
+    modalClienteConteudo.appendChild(boxEndereco);
+
+    // Bloco 2: Empréstimos Solicitados pelo Cliente
+    const tituloContratos = document.createElement('strong');
+    tituloContratos.style.display = 'block';
+    tituloContratos.style.marginBottom = '10px';
+    tituloContratos.style.color = '#0F172A';
+    tituloContratos.textContent = `Empréstimos Solicitados (${contratosDoCliente.length})`;
+    modalClienteConteudo.appendChild(tituloContratos);
+
+    if (contratosDoCliente.length === 0) {
+        const pSemContratos = document.createElement('p');
+        pSemContratos.style.color = 'var(--text-muted)';
+        pSemContratos.style.textAlign = 'center';
+        pSemContratos.style.padding = '16px 0';
+        pSemContratos.textContent = 'Este cliente ainda não solicitou nenhum empréstimo.';
+        modalClienteConteudo.appendChild(pSemContratos);
+    } else {
+        const tabela = document.createElement('table');
+        tabela.innerHTML = `
+            <thead>
+                <tr>
+                    <th>Contrato</th>
+                    <th>Plano</th>
+                    <th>Valor Solicitado</th>
+                    <th>Total c/ Juros</th>
+                    <th>Parcelas</th>
+                    <th>Situação</th>
+                </tr>
+            </thead>
+        `;
+        const tbody = document.createElement('tbody');
+
+        contratosDoCliente.forEach((c) => {
+            const pagas = c.parcelasPagas || 0;
+            const quitado = pagas >= c.parcelas;
+            const infoVenc = calcularProximoVencimento(c.dataPrimeiroVencimento, pagas);
+            const atrasado = !quitado && infoVenc.atrasado;
+
+            const tr = document.createElement('tr');
+
+            const tdId = document.createElement('td');
+            tdId.style.fontWeight = '600';
+            tdId.textContent = `#CTR-${String(c.id).padStart(4, '0')}`;
+
+            const tdPlano = document.createElement('td');
+            tdPlano.textContent = `${c.plano} (${c.taxa}% a.m.)`;
+
+            const tdBase = document.createElement('td');
+            tdBase.textContent = formatarMoeda(c.valorBase);
+
+            const tdTotal = document.createElement('td');
+            tdTotal.textContent = formatarMoeda(c.valorTotal);
+
+            const tdParcelas = document.createElement('td');
+            tdParcelas.textContent = `${pagas}/${c.parcelas} (${formatarMoeda(c.valorParcela)})`;
+
+            const tdStatus = document.createElement('td');
+            const badge = document.createElement('span');
+            if (quitado) {
+                badge.className = 'status-badge status-quitado';
+                badge.textContent = 'Quitado';
+            } else if (atrasado) {
+                badge.className = 'status-badge status-atrasado';
+                badge.textContent = 'Atrasado';
+            } else {
+                badge.className = 'status-badge status-ativo';
+                badge.textContent = 'Em Dia';
+            }
+            tdStatus.appendChild(badge);
+
+            tr.appendChild(tdId);
+            tr.appendChild(tdPlano);
+            tr.appendChild(tdBase);
+            tr.appendChild(tdTotal);
+            tr.appendChild(tdParcelas);
+            tr.appendChild(tdStatus);
+            tbody.appendChild(tr);
+        });
+
+        tabela.appendChild(tbody);
+        modalClienteConteudo.appendChild(tabela);
+    }
+
+    modalCliente.style.display = 'flex';
+}
 
 inputClienteCpf.addEventListener('input', (evento) => {
     let digitos = evento.target.value.replace(/\D/g, '').slice(0, 11);
@@ -344,7 +476,6 @@ function atualizarClientesNaTela() {
         selectClienteContrato.appendChild(optionVazio);
     }
 
-    // Preenche o select completo da tela de Empréstimos
     clientes.forEach((cliente) => {
         const option = document.createElement('option');
         option.value = cliente.id;
@@ -352,7 +483,6 @@ function atualizarClientesNaTela() {
         selectClienteContrato.appendChild(option);
     });
 
-    // Filtra a tabela de Clientes Cadastrados por Nome ou CPF
     const clientesFiltrados = clientes.filter((cliente) => {
         if (!termoBusca) return true;
         const bateNome = cliente.nome.toLowerCase().includes(termoBusca);
@@ -392,12 +522,22 @@ function atualizarClientesNaTela() {
         tdEndereco.style.fontSize = '0.85rem';
 
         const tdAcao = document.createElement('td');
+        tdAcao.className = 'acoes-cell';
+
+        const btnExtrato = document.createElement('button');
+        btnExtrato.className = 'btn-extrato';
+        btnExtrato.textContent = 'Extrato';
+        btnExtrato.title = 'Ver endereço completo e empréstimos do cliente';
+        btnExtrato.onclick = () => abrirExtratoCliente(cliente);
+
         const btnExcluir = document.createElement('button');
         btnExcluir.className = 'btn-danger';
         btnExcluir.textContent = 'Excluir';
         btnExcluir.onclick = () => excluirCliente(cliente.id);
 
+        tdAcao.appendChild(btnExtrato);
         tdAcao.appendChild(btnExcluir);
+
         tr.appendChild(tdNome);
         tr.appendChild(tdCpf);
         tr.appendChild(tdWhatsapp);
