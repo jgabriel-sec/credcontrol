@@ -130,10 +130,19 @@ app.get('/api/clientes', autenticarToken, (req, res) => {
 });
 
 app.post('/api/clientes', autenticarToken, (req, res) => {
-    const { nome, cpf, whatsapp } = req.body;
+    const { nome, cpf, whatsapp, cep, rua, numero, complemento, bairro, cidade, uf } = req.body;
+
     const nomeLimpo = String(nome || '').trim();
     const cpfLimpo = String(cpf || '').replace(/\D/g, '');
     let whatsappLimpo = String(whatsapp || '').replace(/\D/g, '');
+
+    const cepLimpo = String(cep || '').replace(/\D/g, '').slice(0, 8);
+    const ruaLimpa = String(rua || '').trim().slice(0, 120);
+    const numeroLimpo = String(numero || '').trim().slice(0, 20);
+    const complementoLimpo = String(complemento || '').trim().slice(0, 80);
+    const bairroLimpo = String(bairro || '').trim().slice(0, 80);
+    const cidadeLimpa = String(cidade || '').trim().slice(0, 80);
+    const ufLimpa = String(uf || '').trim().toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2);
 
     if (whatsappLimpo.startsWith('55') && (whatsappLimpo.length === 12 || whatsappLimpo.length === 13)) {
         whatsappLimpo = whatsappLimpo.slice(2);
@@ -148,10 +157,14 @@ app.post('/api/clientes', autenticarToken, (req, res) => {
     if (whatsappLimpo.length < 10 || whatsappLimpo.length > 11) {
         return res.status(400).json({ erro: 'WhatsApp inválido. Use o padrão +55(DDD)900000000.' });
     }
+    if (cepLimpo.length !== 8 || ruaLimpa.length < 2 || numeroLimpo.length < 1 || bairroLimpo.length < 2 || cidadeLimpa.length < 2 || ufLimpa.length !== 2) {
+        return res.status(400).json({ erro: 'Preencha todos os campos obrigatórios do endereço (CEP, Rua, Número, Bairro, Cidade e UF).' });
+    }
 
     db.run(
-        'INSERT INTO clientes (nome, cpf, whatsapp) VALUES (?, ?, ?)',
-        [nomeLimpo, cpfLimpo, whatsappLimpo],
+        `INSERT INTO clientes (nome, cpf, whatsapp, cep, rua, numero, complemento, bairro, cidade, uf)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [nomeLimpo, cpfLimpo, whatsappLimpo, cepLimpo, ruaLimpa, numeroLimpo, complementoLimpo, bairroLimpo, cidadeLimpa, ufLimpa],
         function(err) {
             if (err) {
                 if (err.message.includes('UNIQUE')) {
@@ -159,7 +172,19 @@ app.post('/api/clientes', autenticarToken, (req, res) => {
                 }
                 return res.status(500).json({ erro: 'Erro ao cadastrar cliente.' });
             }
-            res.status(201).json({ id: this.lastID, nome: nomeLimpo, cpf: cpfLimpo, whatsapp: whatsappLimpo });
+            res.status(201).json({
+                id: this.lastID,
+                nome: nomeLimpo,
+                cpf: cpfLimpo,
+                whatsapp: whatsappLimpo,
+                cep: cepLimpo,
+                rua: ruaLimpa,
+                numero: numeroLimpo,
+                complemento: complementoLimpo,
+                bairro: bairroLimpo,
+                cidade: cidadeLimpa,
+                uf: ufLimpa
+            });
         }
     );
 });
@@ -240,6 +265,13 @@ app.get('/api/contratos', autenticarToken, (req, res) => {
             cli.nome AS cliente,
             cli.cpf AS cpf,
             cli.whatsapp AS whatsapp,
+            cli.cep AS cep,
+            cli.rua AS rua,
+            cli.numero AS numero,
+            cli.complemento AS complemento,
+            cli.bairro AS bairro,
+            cli.cidade AS cidade,
+            cli.uf AS uf,
             p.nome AS plano,
             p.taxa AS taxa
         FROM contratos c

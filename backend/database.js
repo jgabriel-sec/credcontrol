@@ -26,7 +26,14 @@ db.serialize(() => {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nome TEXT NOT NULL,
             cpf TEXT UNIQUE NOT NULL,
-            whatsapp TEXT NOT NULL
+            whatsapp TEXT NOT NULL,
+            cep TEXT DEFAULT '',
+            rua TEXT DEFAULT '',
+            numero TEXT DEFAULT '',
+            complemento TEXT DEFAULT '',
+            bairro TEXT DEFAULT '',
+            cidade TEXT DEFAULT '',
+            uf TEXT DEFAULT ''
         )
     `);
 
@@ -71,6 +78,13 @@ db.serialize(() => {
     // Migrações seguras para bancos já existentes
     db.run(`ALTER TABLE contratos ADD COLUMN data_primeiro_vencimento TEXT`, () => {});
     db.run(`ALTER TABLE planos ADD COLUMN valor REAL DEFAULT 0`, () => {});
+    db.run(`ALTER TABLE clientes ADD COLUMN cep TEXT DEFAULT ''`, () => {});
+    db.run(`ALTER TABLE clientes ADD COLUMN rua TEXT DEFAULT ''`, () => {});
+    db.run(`ALTER TABLE clientes ADD COLUMN numero TEXT DEFAULT ''`, () => {});
+    db.run(`ALTER TABLE clientes ADD COLUMN complemento TEXT DEFAULT ''`, () => {});
+    db.run(`ALTER TABLE clientes ADD COLUMN bairro TEXT DEFAULT ''`, () => {});
+    db.run(`ALTER TABLE clientes ADD COLUMN cidade TEXT DEFAULT ''`, () => {});
+    db.run(`ALTER TABLE clientes ADD COLUMN uf TEXT DEFAULT ''`, () => {});
 
     // Migração retroativa de pagamentos
     db.all('SELECT id, parcelas_pagas, valor_parcela FROM contratos WHERE parcelas_pagas > 0', (err, rows) => {

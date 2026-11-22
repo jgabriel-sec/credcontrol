@@ -151,7 +151,6 @@ function formatarMoeda(valor) {
     return Number(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
-// Máscara monetária em tempo real (ex: digitar 110000 -> R$ 1.100,00)
 function aplicarMascaraMoedaInput(valorBruto) {
     const apenasDigitos = String(valorBruto).replace(/\D/g, '');
     if (!apenasDigitos) return '';
@@ -159,7 +158,6 @@ function aplicarMascaraMoedaInput(valorBruto) {
     return valorNumerico.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
-// Converte string formatada (ex: "R$ 1.100,00") de volta para número float (1100)
 function converterMoedaParaNumero(textoMoeda) {
     if (!textoMoeda) return NaN;
     const limpo = String(textoMoeda)
@@ -184,6 +182,19 @@ function formatarTelefone(tel) {
     const ddd = semPais.substring(0, 2);
     const numero = semPais.substring(2);
     return `+55(${ddd})${numero}`;
+}
+
+function formatarCEP(cepLimpo) {
+    const digitos = String(cepLimpo || '').replace(/\D/g, '');
+    if (digitos.length !== 8) return cepLimpo || '';
+    return `${digitos.slice(0, 5)}-${digitos.slice(5)}`;
+}
+
+function formatarEnderecoCompleto(item) {
+    if (!item || !item.rua) return 'Não informado';
+    const comp = item.complemento ? ` (${item.complemento})` : '';
+    const cepFmt = item.cep ? ` - CEP: ${formatarCEP(item.cep)}` : '';
+    return `${item.rua}, nº ${item.numero}${comp} - ${item.bairro}, ${item.cidade}/${item.uf}${cepFmt}`;
 }
 
 function formatarDataHoraSQLite(dataStr) {
@@ -218,13 +229,20 @@ document.getElementById('input-importar-backup').addEventListener('change', (eve
 });
 
 // ==========================================
-// 3. MÓDULO DE CLIENTES E MÁSCARAS DE ENTRADA
+// 3. MÓDULO DE CLIENTES, MÁSCARAS E ENDEREÇO
 // ==========================================
 const formCliente = document.getElementById('form-cliente');
 const tabelaClientes = document.getElementById('tabela-clientes');
 const selectClienteContrato = document.getElementById('contrato-cliente');
 const inputClienteCpf = document.getElementById('cliente-cpf');
 const inputClienteWhatsapp = document.getElementById('cliente-whatsapp');
+const inputClienteCep = document.getElementById('cliente-cep');
+const inputClienteRua = document.getElementById('cliente-rua');
+const inputClienteNumero = document.getElementById('cliente-numero');
+const inputClienteComplemento = document.getElementById('cliente-complemento');
+const inputClienteBairro = document.getElementById('cliente-bairro');
+const inputClienteCidade = document.getElementById('cliente-cidade');
+const inputClienteUf = document.getElementById('cliente-uf');
 
 inputClienteCpf.addEventListener('input', (evento) => {
     let digitos = evento.target.value.replace(/\D/g, '').slice(0, 11);
@@ -279,6 +297,34 @@ inputClienteWhatsapp.addEventListener('input', (evento) => {
     evento.target.value = aplicarMascaraWhatsapp(evento.target.value);
 });
 
+// Máscara do CEP (00000-000) e consulta automática opcional via ViaCEP
+inputClienteCep.addEventListener('input', async (evento) => {
+    const digitos = evento.target.value.replace(/\D/g, '').slice(0, 8);
+    evento.target.value = digitos.length > 5
+        ? `${digitos.slice(0, 5)}-${digitos.slice(5)}`
+        : digitos;
+
+    if (digitos.length === 8) {
+        try {
+            const resp = await fetch(`https://viacep.com.br/ws/${digitos}/json/`);
+            const dados = await resp.json();
+            if (!dados.erro) {
+                if (dados.logradouro) inputClienteRua.value = dados.logradouro;
+                if (dados.bairro) inputClienteBairro.value = dados.bairro;
+                if (dados.localidade) inputClienteCidade.value = dados.localidade;
+                if (dados.uf) inputClienteUf.value = dados.uf;
+                inputClienteNumero.focus();
+            }
+        } catch (e) {
+            // Caso esteja sem internet, o usuário preenche manualmente sem problemas
+        }
+    }
+});
+
+inputClienteUf.addEventListener('input', (evento) => {
+    evento.target.value = evento.target.value.replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 2);
+});
+
 function atualizarClientesNaTela() {
     tabelaClientes.innerHTML = '';
     selectClienteContrato.innerHTML = '';
@@ -307,6 +353,10 @@ function atualizarClientesNaTela() {
         const tdWhatsapp = document.createElement('td');
         tdWhatsapp.textContent = formatarTelefone(cliente.whatsapp);
 
+        const tdEndereco = document.createElement('td');
+        tdEndereco.textContent = formatarEnderecoCompleto(cliente);
+        tdEndereco.style.fontSize = '0.85rem';
+
         const tdAcao = document.createElement('td');
         const btnExcluir = document.createElement('button');
         btnExcluir.className = 'btn-danger';
@@ -317,6 +367,7 @@ function atualizarClientesNaTela() {
         tr.appendChild(tdNome);
         tr.appendChild(tdCpf);
         tr.appendChild(tdWhatsapp);
+        tr.appendChild(tdEndereco);
         tr.appendChild(tdAcao);
 
         tabelaClientes.appendChild(tr);
@@ -340,6 +391,14 @@ formCliente.addEventListener('submit', async (evento) => {
     const cpf = inputClienteCpf.value.replace(/\D/g, '');
     let whatsapp = inputClienteWhatsapp.value.replace(/\D/g, '');
 
+    const cep = inputClienteCep.value.replace(/\D/g, '');
+    const rua = inputClienteRua.value.trim();
+    const numero = inputClienteNumero.value.trim();
+    const complemento = inputClienteComplemento.value.trim();
+    const bairro = inputClienteBairro.value.trim();
+    const cidade = inputClienteCidade.value.trim();
+    const uf = inputClienteUf.value.trim().toUpperCase();
+
     if (cpf.length !== 11) {
         alert('O CPF deve conter exatamente 11 dígitos (000.000.000.00).');
         inputClienteCpf.focus();
@@ -356,10 +415,16 @@ formCliente.addEventListener('submit', async (evento) => {
         return;
     }
 
+    if (cep.length !== 8 || !rua || !numero || !bairro || !cidade || uf.length !== 2) {
+        alert('Preencha o endereço completo (CEP com 8 dígitos, Rua, Número, Bairro, Cidade e UF).');
+        inputClienteCep.focus();
+        return;
+    }
+
     try {
         await requisicaoAPI('/clientes', {
             method: 'POST',
-            body: JSON.stringify({ nome, cpf, whatsapp })
+            body: JSON.stringify({ nome, cpf, whatsapp, cep, rua, numero, complemento, bairro, cidade, uf })
         });
         formCliente.reset();
         await carregarTodosOsDados();
@@ -378,7 +443,6 @@ const selectPlanoEmprestimo = document.getElementById('plano-nome');
 const inputValorEmprestimo = document.getElementById('valor-emprestimo');
 const inputNovoPlanoValor = document.getElementById('novo-plano-valor');
 
-// Aplica máscara monetária automática em ambos os campos de valor
 inputNovoPlanoValor.addEventListener('input', (evento) => {
     evento.target.value = aplicarMascaraMoedaInput(evento.target.value);
 });
@@ -682,50 +746,59 @@ async function gerarContratoPDF(contrato) {
     doc.text(`Contrato Nº #CTR-${String(contrato.id).padStart(4, '0')}`, 160, 12);
     doc.text(`Emissão: ${new Date().toLocaleDateString('pt-BR')}`, 160, 18);
 
+    // Seção 1: Identificação e Endereço do Contratante (LGPD)
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10.5);
-    doc.text('1. IDENTIFICAÇÃO DO CONTRATANTE', 14, 35);
+    doc.text('1. IDENTIFICAÇÃO DO CONTRATANTE', 14, 34);
 
     doc.setDrawColor(203, 213, 225);
-    doc.line(14, 37, 196, 37);
+    doc.line(14, 36, 196, 36);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.5);
-    doc.text(`Nome Completo: ${contrato.cliente}`, 14, 43);
-    doc.text(`CPF (Protegido - LGPD): ${mascararCPF(contrato.cpf)}`, 14, 48.5);
-    doc.text(`Telefone / WhatsApp: ${formatarTelefone(contrato.whatsapp)}`, 115, 48.5);
+    doc.text(`Nome Completo: ${contrato.cliente}`, 14, 42);
+    doc.text(`CPF (Protegido - LGPD): ${mascararCPF(contrato.cpf)}`, 14, 47.5);
+    doc.text(`Telefone / WhatsApp: ${formatarTelefone(contrato.whatsapp)}`, 115, 47.5);
 
+    const enderecoFormatado = formatarEnderecoCompleto(contrato);
+    const linhasEndereco = doc.splitTextToSize(`Endereço: ${enderecoFormatado}`, 182);
+    doc.text(linhasEndereco, 14, 53);
+
+    const offsetEndereco = linhasEndereco.length > 1 ? 5 : 0;
+
+    // Seção 2: Condições Financeiras do Empréstimo
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10.5);
-    doc.text('2. CONDIÇÕES FINANCEIRAS CONTRATADAS', 14, 58);
-    doc.line(14, 60, 196, 60);
+    doc.text('2. CONDIÇÕES FINANCEIRAS CONTRATADAS', 14, 62 + offsetEndereco);
+    doc.line(14, 64 + offsetEndereco, 196, 64 + offsetEndereco);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.5);
-    doc.text(`Plano Selecionado: ${contrato.plano} (${contrato.taxa}% a.m.)`, 14, 66);
-    doc.text(`Capital Liberado: ${formatarMoeda(contrato.valorBase)}`, 115, 66);
-    doc.text(`Valor Total do Contrato: ${formatarMoeda(contrato.valorTotal)} (${contrato.parcelas}x de ${formatarMoeda(contrato.valorParcela)})`, 14, 71.5);
+    doc.text(`Plano Selecionado: ${contrato.plano} (${contrato.taxa}% a.m.)`, 14, 70 + offsetEndereco);
+    doc.text(`Capital Liberado: ${formatarMoeda(contrato.valorBase)}`, 115, 70 + offsetEndereco);
+    doc.text(`Valor Total do Contrato: ${formatarMoeda(contrato.valorTotal)} (${contrato.parcelas}x de ${formatarMoeda(contrato.valorParcela)})`, 14, 75.5 + offsetEndereco);
 
+    // Seção 3: Demonstrativo de Pagamento e Cronograma Discriminado
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10.5);
-    doc.text('3. DEMONSTRATIVO DE PAGAMENTO E CRONOGRAMA DE PARCELAS', 14, 81);
-    doc.line(14, 83, 196, 83);
+    doc.text('3. DEMONSTRATIVO DE PAGAMENTO E CRONOGRAMA DE PARCELAS', 14, 85 + offsetEndereco);
+    doc.line(14, 87 + offsetEndereco, 196, 87 + offsetEndereco);
 
     doc.setFillColor(248, 250, 252);
-    doc.rect(14, 86, 182, 21, 'F');
+    doc.rect(14, 90 + offsetEndereco, 182, 21, 'F');
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.5);
-    doc.text(`Parcelas Pagas até o momento: ${pagas} de ${contrato.parcelas} (${formatarMoeda(valorJaPago)})`, 18, 92);
-    doc.text(`Parcelas Restantes: ${Math.max(0, contrato.parcelas - pagas)} parcela(s)`, 125, 92);
+    doc.text(`Parcelas Pagas até o momento: ${pagas} de ${contrato.parcelas} (${formatarMoeda(valorJaPago)})`, 18, 96 + offsetEndereco);
+    doc.text(`Parcelas Restantes: ${Math.max(0, contrato.parcelas - pagas)} parcela(s)`, 125, 96 + offsetEndereco);
 
     doc.setFont('helvetica', 'bold');
-    doc.text(`Saldo Devedor Restante: ${formatarMoeda(saldoRestante)}`, 18, 98);
-    doc.text(`Situação Atual: ${statusTexto}`, 125, 98);
-    doc.text(`Próximo Vencimento: ${quitado ? 'Contrato Quitado' : infoVencimento.dataFormatada}`, 18, 104);
+    doc.text(`Saldo Devedor Restante: ${formatarMoeda(saldoRestante)}`, 18, 102 + offsetEndereco);
+    doc.text(`Situação Atual: ${statusTexto}`, 125, 102 + offsetEndereco);
+    doc.text(`Próximo Vencimento: ${quitado ? 'Contrato Quitado' : infoVencimento.dataFormatada}`, 18, 108 + offsetEndereco);
 
-    let y = 115;
+    let y = 119 + offsetEndereco;
 
     doc.setFillColor(226, 232, 240);
     doc.rect(14, y - 4.5, 182, 6.5, 'F');
