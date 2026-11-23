@@ -1,4 +1,7 @@
-const API_URL = 'http://localhost:3000/api';
+const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const API_URL = isLocalhost
+    ? 'http://localhost:3000/api'
+    : 'https://SUA-URL-DO-RENDER.onrender.com/api';
 
 // ==========================================
 // 0. CLIENTE HTTP SEGURO E AUTENTICAÇÃO JWT
@@ -71,7 +74,7 @@ async function verificarEstadoAutenticacao() {
             btnLogin.textContent = 'Entrar no Sistema';
         }
     } catch (erro) {
-        loginErro.textContent = 'Servidor offline! Verifique se o backend está rodando na porta 3000.';
+        loginErro.textContent = 'Servidor offline! Verifique se o backend está online e acessível.';
         loginErro.style.display = 'block';
     }
 }
@@ -214,7 +217,7 @@ function formatarDataHoraSQLite(dataStr) {
 document.getElementById('btn-exportar-backup').addEventListener('click', () => {
     const dadosBackup = {
         sistema: 'CredControl',
-        origem: 'SQLite-API',
+        origem: 'PostgreSQL-API',
         dataExportacao: new Date().toISOString(),
         clientes,
         planos,
@@ -232,7 +235,7 @@ document.getElementById('btn-exportar-backup').addEventListener('click', () => {
 });
 
 document.getElementById('input-importar-backup').addEventListener('change', (evento) => {
-    alert('No modo Full Stack com banco SQLite, os dados já ficam salvos automaticamente no arquivo database.sqlite na pasta backend/.');
+    alert('No modo Full Stack em nuvem, os dados já ficam salvos automaticamente no banco PostgreSQL (Supabase).');
     evento.target.value = '';
 });
 
@@ -1075,7 +1078,6 @@ async function gerarContratoPDF(contrato) {
     const quitado = pagas >= contrato.parcelas;
     const infoVencimento = calcularProximoVencimento(contrato.dataPrimeiroVencimento, pagas);
 
-    // Cálculo exato dos encargos contratuais por inadimplência sobre o valor emprestado
     const valorMultaAtraso = contrato.valorBase * 0.05;
     const valorJurosDiarioAtraso = contrato.valorBase * 0.02;
 
@@ -1083,7 +1085,6 @@ async function gerarContratoPDF(contrato) {
         ? 'UNIFICADO EM NOVO INSTRUMENTO'
         : (quitado ? 'QUITADO INTEGRALMENTE' : (infoVencimento.atrasado ? 'INADIMPLENTE (EM ATRASO)' : 'REGULAR / EM DIA'));
 
-    // Cabeçalho Institucional
     doc.setFillColor(15, 23, 42);
     doc.rect(0, 0, 210, 28, 'F');
 
@@ -1103,9 +1104,7 @@ async function gerarContratoPDF(contrato) {
     doc.setFont('helvetica', 'normal');
     doc.text(`Data de Emissão: ${new Date().toLocaleDateString('pt-BR')}`, 152, 18);
 
-    // =========================================================
-    // TÓPICO 1: QUALIFICAÇÃO DAS PARTES E DO CONTRATANTE
-    // =========================================================
+    // TÓPICO 1
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
@@ -1127,9 +1126,7 @@ async function gerarContratoPDF(contrato) {
 
     const offsetEndereco = linhasEndereco.length > 1 ? 5 : 0;
 
-    // =========================================================
-    // TÓPICO 2: OBJETO E CONDIÇÕES FINANCEIRAS PACTUADAS
-    // =========================================================
+    // TÓPICO 2
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.text('2. OBJETO E CONDIÇÕES FINANCEIRAS PACTUADAS', 14, 69 + offsetEndereco);
@@ -1151,9 +1148,7 @@ async function gerarContratoPDF(contrato) {
         offsetObs = 5;
     }
 
-    // =========================================================
-    // TÓPICO 3: DEMONSTRATIVO FINANCEIRO E CRONOGRAMA DE PARCELAS
-    // =========================================================
+    // TÓPICO 3
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.text('3. DEMONSTRATIVO DE AMORTIZAÇÃO E CRONOGRAMA DE VENCIMENTOS', 14, 97 + offsetEndereco + offsetObs);
@@ -1226,7 +1221,6 @@ async function gerarContratoPDF(contrato) {
         y += 5.5;
     }
 
-    // Verifica espaço para os Tópicos 4, 5 e Assinaturas (aprox. 88mm necessários)
     if (y > 195) {
         doc.addPage();
         y = 18;
@@ -1234,9 +1228,7 @@ async function gerarContratoPDF(contrato) {
         y += 6;
     }
 
-    // =========================================================
-    // TÓPICO 4: CONDIÇÕES E ENCARGOS EM CASO DE ATRASO
-    // =========================================================
+    // TÓPICO 4
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
@@ -1258,9 +1250,7 @@ async function gerarContratoPDF(contrato) {
 
     y += 24;
 
-    // =========================================================
-    // TÓPICO 5: DISPOSIÇÕES GERAIS, TERMOS E CONCORDÂNCIA
-    // =========================================================
+    // TÓPICO 5
     if (y > 235) {
         doc.addPage();
         y = 18;

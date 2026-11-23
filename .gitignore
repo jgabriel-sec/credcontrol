@@ -11,4 +11,3 @@ node_modules/
 # Arquivos do Sistema Operacional
 .DS_Store
 Thumbs.db
-backend/zerar.js
