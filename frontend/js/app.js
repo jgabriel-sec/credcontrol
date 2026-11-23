@@ -1,7 +1,7 @@
 const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const API_URL = isLocalhost
     ? 'http://localhost:3000/api'
-    : 'https://SUA-URL-DO-RENDER.onrender.com/api';
+    : 'https://gestor-emprestimos.onrender.com/api';
 
 // ==========================================
 // 0. CLIENTE HTTP SEGURO E AUTENTICAÇÃO JWT
@@ -74,7 +74,7 @@ async function verificarEstadoAutenticacao() {
             btnLogin.textContent = 'Entrar no Sistema';
         }
     } catch (erro) {
-        loginErro.textContent = 'Servidor offline! Verifique se o backend está online e acessível.';
+        loginErro.textContent = 'Servidor offline ou inicializando! Aguarde 40 segundos e atualize a página.';
         loginErro.style.display = 'block';
     }
 }
