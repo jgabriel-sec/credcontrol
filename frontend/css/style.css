@@ -78,7 +78,7 @@ body {
 }
 
 /* ========================================== */
-/* LAYOUT PRINCIPAL E SIDEBAR                 */
+/* LAYOUT PRINCIPAL E SIDEBAR FIXA            */
 /* ========================================== */
 .app-container {
     display: flex;
@@ -92,6 +92,11 @@ body {
     padding: 24px 20px;
     display: flex;
     flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    flex-shrink: 0;
 }
 
 .brand {
@@ -118,6 +123,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    flex: 1;
 }
 
 .menu-item {
@@ -190,7 +196,7 @@ body {
 .main-content {
     flex: 1;
     padding: 32px 40px;
-    overflow-y: auto;
+    min-width: 0;
 }
 
 .topbar {
@@ -539,6 +545,8 @@ td {
         flex-direction: column;
     }
     .sidebar {
+        position: static;
+        height: auto;
         width: 100%;
     }
     .main-content {
