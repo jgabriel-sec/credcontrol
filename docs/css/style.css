@@ -553,3 +553,23 @@ td {
         padding: 20px;
     }
 }
+
+/* Botões administrativos uniformes no rodapé escuro da sidebar */
+.btn-sidebar-action {
+    width: 100%;
+    padding: 9px 12px;
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #F8FAFC;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 6px;
+    font-size: 0.84rem;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: center;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.btn-sidebar-action:hover {
+    background-color: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.28);
+}
