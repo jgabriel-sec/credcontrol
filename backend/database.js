@@ -24,12 +24,8 @@ async function inicializarBanco() {
             )
         `);
 
-        // Garante compatibilidade com o banco já existente no Supabase
         await client.query(`
             ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin'
-        `);
-        await client.query(`
-            UPDATE usuarios SET role = 'admin' WHERE usuario = 'admin'
         `);
 
         await client.query(`

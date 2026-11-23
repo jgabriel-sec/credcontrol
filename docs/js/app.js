@@ -24,6 +24,7 @@ const badgePerfilUsuario = document.getElementById('badge-perfil-usuario');
 let modoSetupInicial = false;
 let modoCadastroGerente = false;
 let gerenteJaConfigurado = false;
+let usuarioAtualSessao = null;
 
 function decodificarPayloadJWT(token) {
     try {
@@ -42,6 +43,7 @@ function decodificarPayloadJWT(token) {
 }
 
 function aplicarPermissoesDePerfil(usuarioLogado) {
+    usuarioAtualSessao = usuarioLogado;
     const ehAdmin = usuarioLogado && usuarioLogado.role === 'admin';
 
     if (blocoSegurancaAdmin) {
@@ -119,7 +121,10 @@ async function requisicaoAPI(endpoint, opcoes = {}) {
         headers
     });
 
-    if ((resposta.status === 401 || resposta.status === 403) && !endpoint.startsWith('/auth')) {
+    const ehRotaPublicaAuth = endpoint.startsWith('/auth');
+    const ehErroSenhaAtualIncorreta = endpoint === '/admin/minhas-credenciais' && resposta.status === 401;
+
+    if ((resposta.status === 401 || resposta.status === 403) && !ehRotaPublicaAuth && !ehErroSenhaAtualIncorreta) {
         sessionStorage.removeItem('credcontrol_token');
         verificarEstadoAutenticacao();
         throw new Error('Sessão expirada ou acesso não autorizado.');
@@ -205,7 +210,60 @@ btnLogout.addEventListener('click', () => {
 });
 
 // ==========================================
-// 0.1 MODAL DE GESTÃO DO GERENTE (EXCLUSIVO ADMIN)
+// 0.1 MODAL ALTERAR MINHAS CREDENCIAIS (ADMIN)
+// ==========================================
+const modalMinhasCredenciais = document.getElementById('modal-minhas-credenciais');
+const formMinhasCredenciais = document.getElementById('form-minhas-credenciais');
+const inputAdminNovoUsuario = document.getElementById('input-admin-novo-usuario');
+const inputAdminNovaSenha = document.getElementById('input-admin-nova-senha');
+const inputAdminSenhaAtual = document.getElementById('input-admin-senha-atual');
+
+function fecharModalCredenciais() {
+    modalMinhasCredenciais.style.display = 'none';
+    formMinhasCredenciais.reset();
+}
+
+document.getElementById('btn-fechar-modal-credenciais').addEventListener('click', fecharModalCredenciais);
+document.getElementById('btn-cancelar-credenciais').addEventListener('click', fecharModalCredenciais);
+modalMinhasCredenciais.addEventListener('click', (e) => {
+    if (e.target === modalMinhasCredenciais) fecharModalCredenciais();
+});
+
+document.getElementById('btn-abrir-minhas-credenciais').addEventListener('click', () => {
+    formMinhasCredenciais.reset();
+    if (usuarioAtualSessao && usuarioAtualSessao.usuario) {
+        inputAdminNovoUsuario.value = usuarioAtualSessao.usuario;
+    }
+    modalMinhasCredenciais.style.display = 'flex';
+});
+
+formMinhasCredenciais.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+    const novoUsuario = inputAdminNovoUsuario.value.trim().toLowerCase();
+    const novaSenha = inputAdminNovaSenha.value;
+    const senhaAtual = inputAdminSenhaAtual.value;
+
+    try {
+        const resp = await requisicaoAPI('/admin/minhas-credenciais', {
+            method: 'PATCH',
+            body: JSON.stringify({ novoUsuario, novaSenha, senhaAtual })
+        });
+
+        if (resp.token) {
+            sessionStorage.setItem('credcontrol_token', resp.token);
+            const novoPayload = decodificarPayloadJWT(resp.token);
+            if (novoPayload) aplicarPermissoesDePerfil(novoPayload);
+        }
+
+        alert(resp.mensagem);
+        fecharModalCredenciais();
+    } catch (erro) {
+        alert(erro.message);
+    }
+});
+
+// ==========================================
+// 0.2 MODAL DE GESTÃO DO GERENTE (EXCLUSIVO ADMIN)
 // ==========================================
 const modalGerente = document.getElementById('modal-gerente');
 const modalGerenteStatus = document.getElementById('modal-gerente-status');

@@ -69,6 +69,9 @@
                         Restaurar Backup
                     </label>
                     <input type="file" id="input-importar-backup" accept=".json" style="display: none;">
+                    <button id="btn-abrir-minhas-credenciais" class="btn-secondary" style="margin-bottom: 8px; border-color: #CBD5E1; color: #0F172A;">
+                        Alterar Minhas Credenciais
+                    </button>
                     <button id="btn-abrir-gerenciar-gerente" class="btn-secondary" style="margin-bottom: 12px; border-color: #CBD5E1; color: #0F172A;">
                         Gerenciar Acesso Gerente
                     </button>
@@ -360,6 +363,45 @@
             </div>
 
         </main>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL ALTERAR MINHAS CREDENCIAIS (ADMIN)   -->
+    <!-- ========================================== -->
+    <div id="modal-minhas-credenciais" class="modal-overlay" style="display: none;">
+        <div class="modal-box" style="max-width: 480px;">
+            <div class="modal-header">
+                <div>
+                    <h2 style="font-size: 1.15rem; margin-bottom: 4px;">Alterar Minhas Credenciais</h2>
+                    <p style="font-size: 0.85rem; color: var(--text-muted);">Atualize seu usuário e/ou senha de Administrador.</p>
+                </div>
+                <button id="btn-fechar-modal-credenciais" class="btn-fechar-modal" title="Fechar">&times;</button>
+            </div>
+
+            <form id="form-minhas-credenciais">
+                <div class="modal-body">
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <label for="input-admin-novo-usuario">Nome de Usuário</label>
+                        <input type="text" id="input-admin-novo-usuario" placeholder="Ex: admin ou jose" required>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <label for="input-admin-nova-senha">Nova Senha (deixe em branco para manter a atual)</label>
+                        <input type="password" id="input-admin-nova-senha" minlength="6" placeholder="Mínimo 6 caracteres (opcional)">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="input-admin-senha-atual">Senha Atual (obrigatória para confirmar)</label>
+                        <input type="password" id="input-admin-senha-atual" placeholder="Digite sua senha atual" required>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" id="btn-cancelar-credenciais" class="btn-secondary" style="width: auto; padding: 8px 16px;">Cancelar</button>
+                    <button type="submit" class="btn-primary">Salvar Novas Credenciais</button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <!-- ========================================== -->

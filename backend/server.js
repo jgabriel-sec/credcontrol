@@ -11,7 +11,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// Necessário para o express-rate-limit funcionar atrás do proxy reverso do Render
 app.set('trust proxy', 1);
 
 // ==========================================
@@ -136,7 +135,6 @@ app.post('/api/auth/setup', limitadorLogin, async (req, res) => {
     }
 });
 
-// Cadastro único do 2º usuário (Gerente)
 app.post('/api/auth/setup-gerente', limitadorLogin, async (req, res) => {
     const usuarioLimpo = String(req.body.usuario || '').trim().toLowerCase();
     const senha = String(req.body.senha || '');
@@ -211,8 +209,61 @@ app.post('/api/auth/login', limitadorLogin, async (req, res) => {
 });
 
 // ==========================================
-// 2.1 GESTÃO DO GERENTE (EXCLUSIVO ADMINISTRADOR)
+// 2.1 GESTÃO DE CREDENCIAIS (EXCLUSIVO ADMINISTRADOR)
 // ==========================================
+app.patch('/api/admin/minhas-credenciais', autenticarToken, exigirAdmin, async (req, res) => {
+    const senhaAtual = String(req.body.senhaAtual || '');
+    const novoUsuario = String(req.body.novoUsuario || '').trim().toLowerCase();
+    const novaSenha = String(req.body.novaSenha || '');
+
+    if (!senhaAtual) {
+        return res.status(400).json({ erro: 'Informe sua senha atual para confirmar a alteração.' });
+    }
+    if (!/^[a-z0-9._-]{3,25}$/.test(novoUsuario)) {
+        return res.status(400).json({ erro: 'O nome de usuário deve ter entre 3 e 25 caracteres (letras minúsculas, números, ponto, traço ou underline).' });
+    }
+    if (novaSenha && novaSenha.length < 6) {
+        return res.status(400).json({ erro: 'A nova senha deve ter no mínimo 6 caracteres.' });
+    }
+
+    try {
+        const result = await pool.query("SELECT id, usuario, senha_hash, role FROM usuarios WHERE id = $1 AND role = 'admin'", [req.usuario.id]);
+        const adminUser = result.rows[0];
+        if (!adminUser) {
+            return res.status(404).json({ erro: 'Conta de administrador não encontrada.' });
+        }
+
+        const senhaValida = await bcrypt.compare(senhaAtual, adminUser.senha_hash);
+        if (!senhaValida) {
+            return res.status(401).json({ erro: 'Senha atual incorreta.' });
+        }
+
+        const novoHash = novaSenha ? await bcrypt.hash(novaSenha, 10) : adminUser.senha_hash;
+
+        await pool.query(
+            'UPDATE usuarios SET usuario = $1, senha_hash = $2 WHERE id = $3',
+            [novoUsuario, novoHash, adminUser.id]
+        );
+
+        const novoToken = jwt.sign(
+            { id: adminUser.id, usuario: novoUsuario, role: 'admin' },
+            JWT_SECRET,
+            { expiresIn: '8h' }
+        );
+
+        res.json({
+            mensagem: 'Suas credenciais de Administrador foram atualizadas com sucesso!',
+            token: novoToken,
+            usuario: { usuario: novoUsuario, role: 'admin' }
+        });
+    } catch (err) {
+        if (err.code === '23505') {
+            return res.status(409).json({ erro: 'Este nome de usuário já está sendo usado pelo Gerente.' });
+        }
+        res.status(500).json({ erro: 'Erro ao atualizar suas credenciais.' });
+    }
+});
+
 app.get('/api/admin/gerente', autenticarToken, exigirAdmin, async (req, res) => {
     try {
         const result = await pool.query("SELECT id, usuario, role FROM usuarios WHERE role = 'gerente' LIMIT 1");
