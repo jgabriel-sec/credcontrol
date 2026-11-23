@@ -4,18 +4,107 @@ const API_URL = isLocalhost
     : 'https://gestor-emprestimos.onrender.com/api';
 
 // ==========================================
-// 0. CLIENTE HTTP SEGURO E AUTENTICAÇÃO JWT
+// 0. CLIENTE HTTP SEGURO E AUTENTICAÇÃO JWT (ADMIN + GERENTE)
 // ==========================================
 const telaLogin = document.getElementById('tela-login');
 const sistemaPrincipal = document.getElementById('sistema-principal');
 const formLogin = document.getElementById('form-login');
 const loginTitulo = document.getElementById('login-titulo');
 const loginInstrucao = document.getElementById('login-instrucao');
+const labelLoginUsuario = document.getElementById('label-login-usuario');
+const inputLoginUsuario = document.getElementById('admin-usuario');
 const loginErro = document.getElementById('login-erro');
 const btnLogin = document.getElementById('btn-login');
+const btnAlternarCadastroGerente = document.getElementById('btn-alternar-cadastro-gerente');
 const btnLogout = document.getElementById('btn-logout');
 
+const blocoSegurancaAdmin = document.getElementById('bloco-seguranca-admin');
+const badgePerfilUsuario = document.getElementById('badge-perfil-usuario');
+
 let modoSetupInicial = false;
+let modoCadastroGerente = false;
+let gerenteJaConfigurado = false;
+
+function decodificarPayloadJWT(token) {
+    try {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(
+            atob(base64)
+                .split('')
+                .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+                .join('')
+        );
+        return JSON.parse(jsonPayload);
+    } catch (e) {
+        return null;
+    }
+}
+
+function aplicarPermissoesDePerfil(usuarioLogado) {
+    const ehAdmin = usuarioLogado && usuarioLogado.role === 'admin';
+
+    if (blocoSegurancaAdmin) {
+        blocoSegurancaAdmin.style.display = ehAdmin ? 'block' : 'none';
+    }
+
+    if (badgePerfilUsuario && usuarioLogado) {
+        const cargoLabel = ehAdmin ? 'Administrador' : 'Gerente';
+        badgePerfilUsuario.textContent = `${cargoLabel} (${usuarioLogado.usuario})`;
+    }
+}
+
+function atualizarInterfaceLogin() {
+    loginErro.style.display = 'none';
+
+    if (modoSetupInicial) {
+        loginTitulo.textContent = 'Configuração Inicial (Admin)';
+        loginInstrucao.textContent = 'Crie sua senha de Administrador no servidor (mínimo 6 caracteres).';
+        labelLoginUsuario.textContent = 'Usuário Administrador';
+        inputLoginUsuario.value = 'admin';
+        inputLoginUsuario.readOnly = true;
+        inputLoginUsuario.style.backgroundColor = '#F1F5F9';
+        inputLoginUsuario.style.color = '#64748B';
+        btnLogin.textContent = 'Definir Senha e Entrar';
+        btnAlternarCadastroGerente.style.display = 'none';
+        return;
+    }
+
+    if (modoCadastroGerente) {
+        loginTitulo.textContent = 'Cadastro do Gerente';
+        loginInstrucao.textContent = 'Crie seu login e senha individuais (limite único para o Gerente).';
+        labelLoginUsuario.textContent = 'Escolha seu Usuário (ex: carlos)';
+        inputLoginUsuario.value = '';
+        inputLoginUsuario.readOnly = false;
+        inputLoginUsuario.style.backgroundColor = '#FFFFFF';
+        inputLoginUsuario.style.color = '#0F172A';
+        btnLogin.textContent = 'Criar Conta de Gerente e Entrar';
+        btnAlternarCadastroGerente.textContent = 'Voltar para o Login';
+        btnAlternarCadastroGerente.style.display = 'block';
+        return;
+    }
+
+    loginTitulo.textContent = 'Acesso Restrito';
+    loginInstrucao.textContent = 'Informe seu usuário e senha para acessar o painel.';
+    labelLoginUsuario.textContent = 'Usuário';
+    inputLoginUsuario.readOnly = false;
+    inputLoginUsuario.style.backgroundColor = '#FFFFFF';
+    inputLoginUsuario.style.color = '#0F172A';
+    btnLogin.textContent = 'Entrar no Sistema';
+
+    if (!gerenteJaConfigurado) {
+        btnAlternarCadastroGerente.textContent = 'Primeiro acesso do Gerente? Criar login';
+        btnAlternarCadastroGerente.style.display = 'block';
+    } else {
+        btnAlternarCadastroGerente.style.display = 'none';
+    }
+}
+
+btnAlternarCadastroGerente.addEventListener('click', () => {
+    modoCadastroGerente = !modoCadastroGerente;
+    formLogin.reset();
+    atualizarInterfaceLogin();
+});
 
 async function requisicaoAPI(endpoint, opcoes = {}) {
     const token = sessionStorage.getItem('credcontrol_token');
@@ -33,7 +122,7 @@ async function requisicaoAPI(endpoint, opcoes = {}) {
     if ((resposta.status === 401 || resposta.status === 403) && !endpoint.startsWith('/auth')) {
         sessionStorage.removeItem('credcontrol_token');
         verificarEstadoAutenticacao();
-        throw new Error('Sessão expirada. Faça login novamente.');
+        throw new Error('Sessão expirada ou acesso não autorizado.');
     }
 
     const dados = await resposta.json();
@@ -51,28 +140,26 @@ async function verificarEstadoAutenticacao() {
     const token = sessionStorage.getItem('credcontrol_token');
 
     if (token) {
-        telaLogin.style.display = 'none';
-        sistemaPrincipal.style.display = 'flex';
-        await carregarTodosOsDados();
-        return;
+        const payload = decodificarPayloadJWT(token);
+        if (payload && payload.usuario) {
+            aplicarPermissoesDePerfil(payload);
+            telaLogin.style.display = 'none';
+            sistemaPrincipal.style.display = 'flex';
+            await carregarTodosOsDados();
+            return;
+        }
+        sessionStorage.removeItem('credcontrol_token');
     }
 
     telaLogin.style.display = 'flex';
     sistemaPrincipal.style.display = 'none';
+    modoCadastroGerente = false;
 
     try {
         const statusSetup = await requisicaoAPI('/auth/verificar-setup');
         modoSetupInicial = !statusSetup.configurado;
-
-        if (modoSetupInicial) {
-            loginTitulo.textContent = 'Configuração Inicial';
-            loginInstrucao.textContent = 'Crie sua senha de Administrador no servidor (mínimo 6 caracteres).';
-            btnLogin.textContent = 'Definir Senha e Entrar';
-        } else {
-            loginTitulo.textContent = 'Acesso Restrito';
-            loginInstrucao.textContent = 'Digite sua senha de administrador para acessar o painel.';
-            btnLogin.textContent = 'Entrar no Sistema';
-        }
+        gerenteJaConfigurado = Boolean(statusSetup.gerenteConfigurado);
+        atualizarInterfaceLogin();
     } catch (erro) {
         loginErro.textContent = 'Servidor offline ou inicializando! Aguarde 40 segundos e atualize a página.';
         loginErro.style.display = 'block';
@@ -83,13 +170,24 @@ formLogin.addEventListener('submit', async (evento) => {
     evento.preventDefault();
     loginErro.style.display = 'none';
 
+    const usuarioDigitado = inputLoginUsuario.value.trim().toLowerCase();
     const senhaDigitada = document.getElementById('admin-senha').value;
-    const rotaAuth = modoSetupInicial ? '/auth/setup' : '/auth/login';
+
+    let rotaAuth = '/auth/login';
+    let corpoReq = { usuario: usuarioDigitado, senha: senhaDigitada };
+
+    if (modoSetupInicial) {
+        rotaAuth = '/auth/setup';
+        corpoReq = { senha: senhaDigitada };
+    } else if (modoCadastroGerente) {
+        rotaAuth = '/auth/setup-gerente';
+        corpoReq = { usuario: usuarioDigitado, senha: senhaDigitada };
+    }
 
     try {
         const resposta = await requisicaoAPI(rotaAuth, {
             method: 'POST',
-            body: JSON.stringify({ senha: senhaDigitada })
+            body: JSON.stringify(corpoReq)
         });
 
         sessionStorage.setItem('credcontrol_token', resposta.token);
@@ -104,6 +202,69 @@ formLogin.addEventListener('submit', async (evento) => {
 btnLogout.addEventListener('click', () => {
     sessionStorage.removeItem('credcontrol_token');
     verificarEstadoAutenticacao();
+});
+
+// ==========================================
+// 0.1 MODAL DE GESTÃO DO GERENTE (EXCLUSIVO ADMIN)
+// ==========================================
+const modalGerente = document.getElementById('modal-gerente');
+const modalGerenteStatus = document.getElementById('modal-gerente-status');
+const formRedefinirSenhaGerente = document.getElementById('form-redefinir-senha-gerente');
+const inputNovaSenhaGerente = document.getElementById('input-nova-senha-gerente');
+
+function fecharModalGerente() {
+    modalGerente.style.display = 'none';
+    formRedefinirSenhaGerente.reset();
+}
+
+document.getElementById('btn-fechar-modal-gerente').addEventListener('click', fecharModalGerente);
+document.getElementById('btn-cancelar-gerente').addEventListener('click', fecharModalGerente);
+modalGerente.addEventListener('click', (e) => {
+    if (e.target === modalGerente) fecharModalGerente();
+});
+
+document.getElementById('btn-abrir-gerenciar-gerente').addEventListener('click', async () => {
+    modalGerenteStatus.innerHTML = '<p style="color: var(--text-muted);">Consultando conta do gerente...</p>';
+    formRedefinirSenhaGerente.style.display = 'none';
+    modalGerente.style.display = 'flex';
+
+    try {
+        const info = await requisicaoAPI('/admin/gerente');
+        if (!info.cadastrado) {
+            modalGerenteStatus.innerHTML = `
+                <div style="background-color: #FEF3C7; border: 1px solid #FDE68A; color: #92400E; padding: 12px; border-radius: 8px;">
+                    <strong>Gerente ainda não cadastrado.</strong><br>
+                    Peça para o gerente acessar o link do sistema e clicar em <em>"Primeiro acesso do Gerente? Criar login"</em> na tela de entrada.
+                </div>
+            `;
+        } else {
+            modalGerenteStatus.innerHTML = `
+                <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 12px; border-radius: 8px;">
+                    <div><strong>Perfil:</strong> Gerente do Sistema</div>
+                    <div style="margin-top: 4px;"><strong>Login cadastrado:</strong> <span style="color: #2563EB; font-weight: 700;">${info.gerente.usuario}</span></div>
+                </div>
+            `;
+            formRedefinirSenhaGerente.style.display = 'block';
+        }
+    } catch (erro) {
+        modalGerenteStatus.textContent = erro.message;
+    }
+});
+
+formRedefinirSenhaGerente.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+    const novaSenha = inputNovaSenhaGerente.value;
+
+    try {
+        const resp = await requisicaoAPI('/admin/gerente/senha', {
+            method: 'PATCH',
+            body: JSON.stringify({ novaSenha })
+        });
+        alert(resp.mensagem);
+        fecharModalGerente();
+    } catch (erro) {
+        alert(erro.message);
+    }
 });
 
 // ==========================================

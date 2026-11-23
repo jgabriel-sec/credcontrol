@@ -54,10 +54,10 @@ app.use('/api/', limitadorGeral);
 
 const limitadorLogin = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 5,
+    max: 10,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { erro: 'Muitas tentativas de login. Acesso temporariamente bloqueado por 15 minutos.' }
+    message: { erro: 'Muitas tentativas de autenticação. Aguarde 15 minutos.' }
 });
 
 function autenticarToken(req, res, next) {
@@ -77,8 +77,15 @@ function autenticarToken(req, res, next) {
     });
 }
 
+function exigirAdmin(req, res, next) {
+    if (!req.usuario || req.usuario.role !== 'admin') {
+        return res.status(403).json({ erro: 'Acesso restrito exclusivamente ao Administrador do sistema.' });
+    }
+    next();
+}
+
 // ==========================================
-// 2. DIAGNÓSTICO E AUTENTICAÇÃO (PÚBLICAS)
+// 2. DIAGNÓSTICO E AUTENTICAÇÃO (ADMIN + GERENTE)
 // ==========================================
 app.get('/api/status', (req, res) => {
     res.json({ status: 'online', sistema: 'CredControl API (PostgreSQL)' });
@@ -86,8 +93,14 @@ app.get('/api/status', (req, res) => {
 
 app.get('/api/auth/verificar-setup', async (req, res) => {
     try {
-        const result = await pool.query('SELECT id FROM usuarios LIMIT 1');
-        res.json({ configurado: result.rows.length > 0 });
+        const result = await pool.query('SELECT usuario, role FROM usuarios');
+        const temAdmin = result.rows.some(u => u.role === 'admin' || u.usuario === 'admin');
+        const temGerente = result.rows.some(u => u.role === 'gerente');
+
+        res.json({
+            configurado: temAdmin,
+            gerenteConfigurado: temGerente
+        });
     } catch (err) {
         res.status(500).json({ erro: 'Erro interno ao consultar banco de dados.' });
     }
@@ -100,40 +113,136 @@ app.post('/api/auth/setup', limitadorLogin, async (req, res) => {
     }
 
     try {
-        const check = await pool.query('SELECT id FROM usuarios LIMIT 1');
+        const check = await pool.query("SELECT id FROM usuarios WHERE role = 'admin' OR usuario = 'admin' LIMIT 1");
         if (check.rows.length > 0) {
             return res.status(403).json({ erro: 'O administrador já foi configurado.' });
         }
 
         const senhaHash = await bcrypt.hash(senha, 10);
         const insert = await pool.query(
-            'INSERT INTO usuarios (usuario, senha_hash) VALUES ($1, $2) RETURNING id',
+            "INSERT INTO usuarios (usuario, senha_hash, role) VALUES ($1, $2, 'admin') RETURNING id, usuario, role",
             ['admin', senhaHash]
         );
 
-        const token = jwt.sign({ id: insert.rows[0].id, usuario: 'admin' }, JWT_SECRET, { expiresIn: '8h' });
-        res.status(201).json({ mensagem: 'Administrador configurado com sucesso!', token });
+        const user = insert.rows[0];
+        const token = jwt.sign({ id: user.id, usuario: user.usuario, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
+        res.status(201).json({
+            mensagem: 'Administrador configurado com sucesso!',
+            token,
+            usuario: { usuario: user.usuario, role: user.role }
+        });
     } catch (err) {
         res.status(500).json({ erro: 'Erro ao salvar administrador.' });
     }
 });
 
-app.post('/api/auth/login', limitadorLogin, async (req, res) => {
-    const { senha } = req.body;
-    if (!senha) return res.status(400).json({ erro: 'Senha é obrigatória.' });
+// Cadastro único do 2º usuário (Gerente)
+app.post('/api/auth/setup-gerente', limitadorLogin, async (req, res) => {
+    const usuarioLimpo = String(req.body.usuario || '').trim().toLowerCase();
+    const senha = String(req.body.senha || '');
+
+    if (!/^[a-z0-9._-]{3,25}$/.test(usuarioLimpo) || usuarioLimpo === 'admin') {
+        return res.status(400).json({ erro: 'Escolha um usuário válido (3 a 25 letras/números, diferente de admin).' });
+    }
+    if (senha.length < 6) {
+        return res.status(400).json({ erro: 'A senha do gerente deve ter no mínimo 6 caracteres.' });
+    }
 
     try {
-        const result = await pool.query('SELECT * FROM usuarios WHERE usuario = $1', ['admin']);
+        const checkTotal = await pool.query('SELECT id, usuario, role FROM usuarios');
+        const temAdmin = checkTotal.rows.some(u => u.role === 'admin' || u.usuario === 'admin');
+        if (!temAdmin) {
+            return res.status(400).json({ erro: 'O administrador precisa configurar o sistema antes do gerente.' });
+        }
+
+        const temGerente = checkTotal.rows.some(u => u.role === 'gerente');
+        if (temGerente || checkTotal.rows.length >= 2) {
+            return res.status(403).json({ erro: 'O limite máximo de 2 usuários (Administrador e Gerente) já foi atingido.' });
+        }
+
+        const senhaHash = await bcrypt.hash(senha, 10);
+        const insert = await pool.query(
+            "INSERT INTO usuarios (usuario, senha_hash, role) VALUES ($1, $2, 'gerente') RETURNING id, usuario, role",
+            [usuarioLimpo, senhaHash]
+        );
+
+        const user = insert.rows[0];
+        const token = jwt.sign({ id: user.id, usuario: user.usuario, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
+        res.status(201).json({
+            mensagem: 'Conta de Gerente criada com sucesso!',
+            token,
+            usuario: { usuario: user.usuario, role: user.role }
+        });
+    } catch (err) {
+        if (err.code === '23505') {
+            return res.status(409).json({ erro: 'Este nome de usuário já está em uso.' });
+        }
+        res.status(500).json({ erro: 'Erro ao cadastrar gerente.' });
+    }
+});
+
+app.post('/api/auth/login', limitadorLogin, async (req, res) => {
+    const usuarioLimpo = String(req.body.usuario || 'admin').trim().toLowerCase();
+    const senha = String(req.body.senha || '');
+
+    if (!usuarioLimpo || !senha) {
+        return res.status(400).json({ erro: 'Usuário e senha são obrigatórios.' });
+    }
+
+    try {
+        const result = await pool.query('SELECT id, usuario, senha_hash, role FROM usuarios WHERE usuario = $1', [usuarioLimpo]);
         const user = result.rows[0];
-        if (!user) return res.status(404).json({ erro: 'Administrador ainda não configurado.' });
+        if (!user) return res.status(401).json({ erro: 'Usuário ou senha inválidos.' });
 
         const senhaValida = await bcrypt.compare(senha, user.senha_hash);
-        if (!senhaValida) return res.status(401).json({ erro: 'Credenciais inválidas.' });
+        if (!senhaValida) return res.status(401).json({ erro: 'Usuário ou senha inválidos.' });
 
-        const token = jwt.sign({ id: user.id, usuario: user.usuario }, JWT_SECRET, { expiresIn: '8h' });
-        res.json({ mensagem: 'Login realizado com sucesso!', token });
+        const roleFinal = user.role || (user.usuario === 'admin' ? 'admin' : 'gerente');
+        const token = jwt.sign({ id: user.id, usuario: user.usuario, role: roleFinal }, JWT_SECRET, { expiresIn: '8h' });
+
+        res.json({
+            mensagem: 'Login realizado com sucesso!',
+            token,
+            usuario: { usuario: user.usuario, role: roleFinal }
+        });
     } catch (err) {
         res.status(500).json({ erro: 'Erro interno no servidor.' });
+    }
+});
+
+// ==========================================
+// 2.1 GESTÃO DO GERENTE (EXCLUSIVO ADMINISTRADOR)
+// ==========================================
+app.get('/api/admin/gerente', autenticarToken, exigirAdmin, async (req, res) => {
+    try {
+        const result = await pool.query("SELECT id, usuario, role FROM usuarios WHERE role = 'gerente' LIMIT 1");
+        if (result.rows.length === 0) {
+            return res.json({ cadastrado: false });
+        }
+        res.json({ cadastrado: true, gerente: result.rows[0] });
+    } catch (err) {
+        res.status(500).json({ erro: 'Erro ao consultar dados do gerente.' });
+    }
+});
+
+app.patch('/api/admin/gerente/senha', autenticarToken, exigirAdmin, async (req, res) => {
+    const novaSenha = String(req.body.novaSenha || '');
+    if (novaSenha.length < 6) {
+        return res.status(400).json({ erro: 'A nova senha do gerente deve ter no mínimo 6 caracteres.' });
+    }
+
+    try {
+        const result = await pool.query("SELECT id, usuario FROM usuarios WHERE role = 'gerente' LIMIT 1");
+        if (result.rows.length === 0) {
+            return res.status(404).json({ erro: 'O gerente ainda não criou o acesso dele no sistema.' });
+        }
+
+        const senhaHash = await bcrypt.hash(novaSenha, 10);
+        await pool.query('UPDATE usuarios SET senha_hash = $1 WHERE id = $2', [senhaHash, result.rows[0].id]);
+
+        res.json({ mensagem: `Senha do gerente (${result.rows[0].usuario}) redefinida com sucesso!` });
+    } catch (err) {
+        res.status(500).json({ erro: 'Erro ao redefinir a senha do gerente.' });
     }
 });
 

@@ -19,22 +19,26 @@
                 <h2>CredControl</h2>
             </div>
             <h3 id="login-titulo" class="login-subtitle">Acesso Restrito</h3>
-            <p id="login-instrucao" class="login-desc">Digite sua senha de administrador para acessar o painel.</p>
+            <p id="login-instrucao" class="login-desc">Informe seu usuário e senha para acessar o painel.</p>
 
             <form id="form-login" class="login-form">
                 <div class="form-group">
-                    <label for="admin-usuario">Usuário Administrador</label>
-                    <input type="text" id="admin-usuario" value="admin" readonly style="background-color: #F1F5F9; color: #64748B;">
+                    <label for="admin-usuario" id="label-login-usuario">Usuário</label>
+                    <input type="text" id="admin-usuario" placeholder="Ex: admin ou seu usuário" autocomplete="username" required>
                 </div>
 
                 <div class="form-group">
                     <label for="admin-senha">Senha de Acesso</label>
-                    <input type="password" id="admin-senha" placeholder="Mínimo 6 caracteres" minlength="6" required>
+                    <input type="password" id="admin-senha" placeholder="Mínimo 6 caracteres" minlength="6" autocomplete="current-password" required>
                 </div>
 
                 <p id="login-erro" class="login-error-msg" style="display: none;"></p>
 
                 <button type="submit" id="btn-login" class="btn-primary" style="width: 100%; margin-top: 8px;">Entrar no Sistema</button>
+
+                <button type="button" id="btn-alternar-cadastro-gerente" class="btn-secondary" style="width: 100%; margin-top: 10px; display: none;">
+                    Primeiro acesso do Gerente? Criar login
+                </button>
             </form>
         </div>
     </div>
@@ -56,14 +60,19 @@
                 <a href="#" class="menu-item" data-tela="tela-relatorios">Relatórios e Lucros</a>
             </nav>
 
-            <!-- Ferramentas de Backup e Logout no Rodapé -->
+            <!-- Ferramentas Exclusivas do Administrador e Logout no Rodapé -->
             <div class="sidebar-footer">
-                <span class="backup-label">Segurança de Dados</span>
-                <button id="btn-exportar-backup" class="btn-secondary" style="margin-bottom: 8px;">Exportar Backup</button>
-                <label for="input-importar-backup" class="btn-secondary" style="display: block; text-align: center; margin-bottom: 12px; cursor: pointer;">
-                    Restaurar Backup
-                </label>
-                <input type="file" id="input-importar-backup" accept=".json" style="display: none;">
+                <div id="bloco-seguranca-admin" style="display: none;">
+                    <span class="backup-label">Segurança de Dados</span>
+                    <button id="btn-exportar-backup" class="btn-secondary" style="margin-bottom: 8px;">Exportar Backup</button>
+                    <label for="input-importar-backup" class="btn-secondary" style="display: block; text-align: center; margin-bottom: 8px; cursor: pointer;">
+                        Restaurar Backup
+                    </label>
+                    <input type="file" id="input-importar-backup" accept=".json" style="display: none;">
+                    <button id="btn-abrir-gerenciar-gerente" class="btn-secondary" style="margin-bottom: 12px; border-color: #CBD5E1; color: #0F172A;">
+                        Gerenciar Acesso Gerente
+                    </button>
+                </div>
                 
                 <button id="btn-logout" class="btn-logout">Sair (Encerrar Sessão)</button>
             </div>
@@ -76,7 +85,7 @@
             <div id="tela-emprestimos" class="tela-secao">
                 <header class="topbar">
                     <h1>Gestão de Empréstimos</h1>
-                    <span class="badge-admin">Sessão Autenticada</span>
+                    <span class="badge-admin" id="badge-perfil-usuario">Sessão Autenticada</span>
                 </header>
 
                 <!-- Cards de Fluxo de Caixa e Lucro Geral -->
@@ -351,6 +360,39 @@
             </div>
 
         </main>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL GESTÃO DO GERENTE (EXCLUSIVO ADMIN)  -->
+    <!-- ========================================== -->
+    <div id="modal-gerente" class="modal-overlay" style="display: none;">
+        <div class="modal-box" style="max-width: 480px;">
+            <div class="modal-header">
+                <div>
+                    <h2 style="font-size: 1.15rem; margin-bottom: 4px;">Acesso do Gerente</h2>
+                    <p style="font-size: 0.85rem; color: var(--text-muted);">Consulte o login do gerente ou redefina a senha caso ele esqueça.</p>
+                </div>
+                <button id="btn-fechar-modal-gerente" class="btn-fechar-modal" title="Fechar">&times;</button>
+            </div>
+
+            <div class="modal-body" id="modal-gerente-status" style="padding-bottom: 8px; font-size: 0.9rem;">
+                <!-- Preenchido dinamicamente pelo JS -->
+            </div>
+
+            <form id="form-redefinir-senha-gerente" style="display: none;">
+                <div class="modal-body" style="padding-top: 8px;">
+                    <div class="form-group">
+                        <label for="input-nova-senha-gerente">Nova Senha para o Gerente (mín. 6 caracteres)</label>
+                        <input type="password" id="input-nova-senha-gerente" minlength="6" placeholder="Digite a nova senha" required>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" id="btn-cancelar-gerente" class="btn-secondary" style="width: auto; padding: 8px 16px;">Fechar</button>
+                    <button type="submit" class="btn-primary">Redefinir Senha do Gerente</button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <!-- ========================================== -->
