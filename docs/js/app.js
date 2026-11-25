@@ -956,7 +956,7 @@ formPlano.addEventListener('submit', async (evento) => {
 });
 
 // ==========================================
-// 5. MÓDULO DE EMPRÉSTIMOS, UNIFICAÇÃO, REVISÃO DE TAXA E RECIBOS
+// 5. MÓDULO DE EMPRÉSTIMOS, UNIFICAÇÃO (VALORES + TAXAS), REVISÃO DE TAXA E RECIBOS
 // ==========================================
 const formEmprestimo = document.getElementById('form-emprestimo');
 const tabelaContratos = document.getElementById('tabela-contratos');
@@ -1362,9 +1362,10 @@ async function gerarContratoPDF(contrato) {
     if (contrato.observacao) {
         doc.setFontSize(8.5);
         doc.setTextColor(37, 99, 235);
-        doc.text(`Registro de Novação / Observação: ${contrato.observacao}`, 14, 92.5 + offsetEndereco);
+        const linhasObs = doc.splitTextToSize(`Registro de Novação / Observação: ${contrato.observacao}`, 182);
+        doc.text(linhasObs, 14, 92.5 + offsetEndereco);
         doc.setTextColor(15, 23, 42);
-        offsetObs = 5;
+        offsetObs = linhasObs.length * 4.5;
     }
 
     // TÓPICO 3
@@ -1696,7 +1697,7 @@ async function excluirContrato(idContrato) {
 }
 
 // ==========================================
-// 5.4 SUBMISSÃO DE NOVO EMPRÉSTIMO E MODAL DE UNIFICAÇÃO
+// 5.4 SUBMISSÃO DE NOVO EMPRÉSTIMO E MODAL DE UNIFICAÇÃO (VALORES + TAXAS)
 // ==========================================
 const modalUnificacao = document.getElementById('modal-unificacao');
 const modalUnificacaoConteudo = document.getElementById('modal-unificacao-conteudo');
@@ -1783,15 +1784,19 @@ formEmprestimo.addEventListener('submit', async (evento) => {
                     (${ant.parcelasPagas}/${ant.parcelasTotais} parcelas pagas) com vencimento no mesmo mês e dia selecionado.
                 </p>
                 <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
-                    <div>• <strong>Saldo de Capital Anterior Restante:</strong> ${formatarMoeda(ant.saldoCapitalRestante)}</div>
-                    <div>• <strong>Novo Valor Solicitado:</strong> ${formatarMoeda(info.novoValorSolicitado)}</div>
-                    <div style="margin-top: 6px; color: #059669; font-weight: 700;">
+                    <div>• <strong>Saldo de Capital Anterior:</strong> ${formatarMoeda(ant.saldoCapitalRestante)} (Taxa: ${ant.taxaAnterior}% a.m.)</div>
+                    <div>• <strong>Novo Valor Solicitado:</strong> ${formatarMoeda(info.novoValorSolicitado)} (Taxa: ${info.taxaNovoPlano}% a.m.)</div>
+                    <hr style="border: none; border-top: 1px solid #E2E8F0; margin: 8px 0;">
+                    <div style="color: #059669; font-weight: 700;">
                         • Novo Capital Consolidado: ${formatarMoeda(info.valorBaseUnificado)}
+                    </div>
+                    <div style="color: #2563EB; font-weight: 700; margin-top: 4px;">
+                        • Nova Taxa Unificada: ${info.taxaUnificada}% a.m. (${ant.taxaAnterior}% + ${info.taxaNovoPlano}%)
                     </div>
                 </div>
                 <p style="font-size: 0.84rem; color: #64748B;">
-                    Ao confirmar, o contrato <strong>#CTR-${String(ant.id).padStart(4, '0')}</strong> será mantido no histórico como <strong>Unificado</strong> 
-                    e será gerado um novo contrato somando os dois valores. Depois você poderá clicar em <strong>Revisar Taxa</strong> se quiser ajustar os juros.
+                    Ao confirmar, o contrato <strong>#CTR-${String(ant.id).padStart(4, '0')}</strong> será encerrado no histórico como <strong>Unificado</strong> 
+                    e será gerado um novo contrato somando os capitais e as taxas. Caso queira ajustar os juros depois, use o botão <strong>Revisar Taxa</strong>.
                 </p>
             `;
             modalUnificacao.style.display = 'flex';

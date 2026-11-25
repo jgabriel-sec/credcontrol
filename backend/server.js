@@ -421,7 +421,7 @@ app.delete('/api/planos/:id', autenticarToken, async (req, res) => {
 });
 
 // ==========================================
-// 5. ROTAS DE CONTRATOS, UNIFICAÇÃO, TAXAS E AUDITORIA
+// 5. ROTAS DE CONTRATOS, UNIFICAÇÃO (VALORES + TAXAS), TAXAS E AUDITORIA
 // ==========================================
 app.get('/api/contratos', autenticarToken, async (req, res) => {
     const sql = `
@@ -534,11 +534,13 @@ app.post('/api/contratos', autenticarToken, async (req, res) => {
         if (!plano) return res.status(404).json({ erro: 'Plano não encontrado.' });
 
         const ativosRes = await client.query(
-            `SELECT id, valor_base::float AS "valorBase", valor_total::float AS "valorTotal", valor_parcela::float AS "valorParcela",
-                    parcelas_totais AS "parcelasTotais", parcelas_pagas AS "parcelasPagas", status,
-                    COALESCE(data_primeiro_vencimento, TO_CHAR(data_criacao, 'YYYY-MM-DD')) AS "dataPrimeiroVencimento"
-             FROM contratos 
-             WHERE cliente_id = $1 AND COALESCE(status, 'ativo') = 'ativo' AND parcelas_pagas < parcelas_totais`,
+            `SELECT c.id, c.valor_base::float AS "valorBase", c.valor_total::float AS "valorTotal", c.valor_parcela::float AS "valorParcela",
+                    c.parcelas_totais AS "parcelasTotais", c.parcelas_pagas AS "parcelasPagas", c.status,
+                    COALESCE(c.taxa_aplicada, p.taxa)::float AS "taxaAplicada",
+                    COALESCE(c.data_primeiro_vencimento, TO_CHAR(c.data_criacao, 'YYYY-MM-DD')) AS "dataPrimeiroVencimento"
+             FROM contratos c
+             JOIN planos p ON c.plano_id = p.id
+             WHERE c.cliente_id = $1 AND COALESCE(c.status, 'ativo') = 'ativo' AND c.parcelas_pagas < c.parcelas_totais`,
             [clienteId]
         );
 
@@ -550,6 +552,12 @@ app.post('/api/contratos', autenticarToken, async (req, res) => {
             const saldoCapitalAnterior = parcelasRestantes * capitalPorParcela;
             const saldoTotalAnterior = parcelasRestantes * contratoConflitante.valorParcela;
 
+            // Regra de unificação: soma dos capitais + soma das taxas (anterior + novo plano)
+            const taxaAnterior = Number(contratoConflitante.taxaAplicada || 0);
+            const taxaNovoPlano = Number(plano.taxa || 0);
+            const taxaUnificada = Number((taxaAnterior + taxaNovoPlano).toFixed(2));
+            const novoValorBaseUnificado = saldoCapitalAnterior + valorBase;
+
             if (!confirmarUnificacao) {
                 return res.status(409).json({
                     requerUnificacao: true,
@@ -559,32 +567,34 @@ app.post('/api/contratos', autenticarToken, async (req, res) => {
                         saldoCapitalRestante: saldoCapitalAnterior,
                         saldoTotalRestante: saldoTotalAnterior,
                         parcelasPagas: contratoConflitante.parcelasPagas,
-                        parcelasTotais: contratoConflitante.parcelasTotais
+                        parcelasTotais: contratoConflitante.parcelasTotais,
+                        taxaAnterior: taxaAnterior
                     },
                     novoValorSolicitado: valorBase,
-                    valorBaseUnificado: saldoCapitalAnterior + valorBase
+                    taxaNovoPlano: taxaNovoPlano,
+                    valorBaseUnificado: novoValorBaseUnificado,
+                    taxaUnificada: taxaUnificada
                 });
             }
 
-            const novoValorBaseUnificado = saldoCapitalAnterior + valorBase;
-            const jurosTotais = novoValorBaseUnificado * (plano.taxa / 100) * plano.parcelas;
+            const jurosTotais = novoValorBaseUnificado * (taxaUnificada / 100) * plano.parcelas;
             const valorTotal = novoValorBaseUnificado + jurosTotais;
             const valorParcela = valorTotal / plano.parcelas;
-            const obsUnificacao = `Unificado com contrato #CTR-${String(contratoConflitante.id).padStart(4, '0')} (Saldo anterior: R$ ${saldoCapitalAnterior.toFixed(2)} + Novo: R$ ${valorBase.toFixed(2)})`;
+            const obsUnificacao = `Unificado com #CTR-${String(contratoConflitante.id).padStart(4, '0')} (Capital: R$ ${saldoCapitalAnterior.toFixed(2)} + R$ ${valorBase.toFixed(2)} | Taxas: ${taxaAnterior}% + ${taxaNovoPlano}% = ${taxaUnificada}% a.m.)`;
 
             await client.query('BEGIN');
             await client.query(`UPDATE contratos SET status = 'unificado' WHERE id = $1`, [contratoConflitante.id]);
             const insertUnif = await client.query(
                 `INSERT INTO contratos (cliente_id, plano_id, valor_base, valor_total, valor_parcela, parcelas_totais, parcelas_pagas, taxa_aplicada, status, contrato_origem_id, observacao, data_primeiro_vencimento)
                  VALUES ($1, $2, $3, $4, $5, $6, 0, $7, 'ativo', $8, $9, $10) RETURNING id`,
-                [clienteId, planoId, novoValorBaseUnificado, valorTotal, valorParcela, plano.parcelas, plano.taxa, contratoConflitante.id, obsUnificacao, dataVencimento]
+                [clienteId, planoId, novoValorBaseUnificado, valorTotal, valorParcela, plano.parcelas, taxaUnificada, contratoConflitante.id, obsUnificacao, dataVencimento]
             );
             await client.query('COMMIT');
 
             return res.status(201).json({
                 id: insertUnif.rows[0].id,
                 unificado: true,
-                mensagem: 'Contratos unificados com sucesso! O histórico anterior foi preservado.'
+                mensagem: 'Contratos e taxas unificados com sucesso! O histórico anterior foi preservado.'
             });
         }
 
