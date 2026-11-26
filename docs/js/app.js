@@ -1297,7 +1297,12 @@ async function gerarContratoPDF(contrato) {
     const quitado = pagas >= contrato.parcelas;
     const infoVencimento = calcularProximoVencimento(contrato.dataPrimeiroVencimento, pagas);
 
-    const valorMultaAtraso = contrato.valorBase * 0.05;
+    // Regra de multa: 10% sobre o valor liberado para planos de 12x ou 18x; 5% para os demais
+    const ehPlanoLongaDuracao = Number(contrato.parcelas) === 12 || Number(contrato.parcelas) === 18;
+    const percentualMultaAtraso = ehPlanoLongaDuracao ? 10 : 5;
+    const percentualMultaExtenso = ehPlanoLongaDuracao ? 'dez por cento' : 'cinco por cento';
+
+    const valorMultaAtraso = contrato.valorBase * (percentualMultaAtraso / 100);
     const valorJurosDiarioAtraso = contrato.valorBase * 0.02;
 
     const statusTexto = ehUnificado
@@ -1464,7 +1469,7 @@ async function gerarContratoPDF(contrato) {
     doc.setFontSize(8.5);
     doc.setTextColor(30, 41, 59);
 
-    const textoAtraso = `O pontual cumprimento das obrigações nas datas estipuladas constitui condição essencial deste instrumento. Em caso de impontualidade ou atraso no pagamento de qualquer parcela, incidirão automaticamente sobre o débito: (a) Multa moratória irretratável de 5% (cinco por cento) calculada sobre o valor emprestado (${formatarMoeda(valorMultaAtraso)}); acrescida de (b) Juros moratórios de 2% (dois por cento) ao dia sobre o valor emprestado (${formatarMoeda(valorJurosDiarioAtraso)} por dia de atraso), computados desde a data do vencimento até a efetiva e integral quitação da obrigação.`;
+    const textoAtraso = `O pontual cumprimento das obrigações nas datas estipuladas constitui condição essencial deste instrumento. Em caso de impontualidade ou atraso no pagamento de qualquer parcela, incidirão automaticamente sobre o débito: (a) Multa moratória irretratável de ${percentualMultaAtraso}% (${percentualMultaExtenso}) calculada sobre o valor emprestado/liberado (${formatarMoeda(valorMultaAtraso)}); acrescida de (b) Juros moratórios de 2% (dois por cento) ao dia sobre o valor emprestado (${formatarMoeda(valorJurosDiarioAtraso)} por dia de atraso), computados desde a data do vencimento até a efetiva e integral quitação da obrigação.`;
     const linhasAtraso = doc.splitTextToSize(textoAtraso, 176);
     doc.text(linhasAtraso, 17, y);
 
