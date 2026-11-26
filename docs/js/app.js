@@ -846,7 +846,7 @@ formCliente.addEventListener('submit', async (evento) => {
 });
 
 // ==========================================
-// 4. MÓDULO DE PLANOS E TAXAS
+// 4. MÓDULO DE PLANOS E TAXAS (COM EDIÇÃO)
 // ==========================================
 const formPlano = document.getElementById('form-plano');
 const tabelaPlanos = document.getElementById('tabela-planos');
@@ -854,12 +854,74 @@ const selectPlanoEmprestimo = document.getElementById('plano-nome');
 const inputValorEmprestimo = document.getElementById('valor-emprestimo');
 const inputNovoPlanoValor = document.getElementById('novo-plano-valor');
 
+const modalEditarPlano = document.getElementById('modal-editar-plano');
+const formEditarPlano = document.getElementById('form-editar-plano');
+const inputEditarPlanoNome = document.getElementById('editar-plano-nome');
+const inputEditarPlanoValor = document.getElementById('editar-plano-valor');
+const inputEditarPlanoTaxa = document.getElementById('editar-plano-taxa');
+const inputEditarPlanoParcelas = document.getElementById('editar-plano-parcelas');
+
+let planoSendoEditadoId = null;
+
 inputNovoPlanoValor.addEventListener('input', (evento) => {
+    evento.target.value = aplicarMascaraMoedaInput(evento.target.value);
+});
+
+inputEditarPlanoValor.addEventListener('input', (evento) => {
     evento.target.value = aplicarMascaraMoedaInput(evento.target.value);
 });
 
 inputValorEmprestimo.addEventListener('input', (evento) => {
     evento.target.value = aplicarMascaraMoedaInput(evento.target.value);
+});
+
+function fecharModalEditarPlano() {
+    modalEditarPlano.style.display = 'none';
+    planoSendoEditadoId = null;
+    formEditarPlano.reset();
+}
+
+document.getElementById('btn-fechar-modal-editar-plano').addEventListener('click', fecharModalEditarPlano);
+document.getElementById('btn-cancelar-editar-plano').addEventListener('click', fecharModalEditarPlano);
+modalEditarPlano.addEventListener('click', (e) => {
+    if (e.target === modalEditarPlano) fecharModalEditarPlano();
+});
+
+function abrirModalEditarPlano(plano) {
+    planoSendoEditadoId = plano.id;
+    inputEditarPlanoNome.value = plano.nome;
+    inputEditarPlanoValor.value = formatarMoeda(plano.valor || 0);
+    inputEditarPlanoTaxa.value = plano.taxa;
+    inputEditarPlanoParcelas.value = plano.parcelas;
+    modalEditarPlano.style.display = 'flex';
+}
+
+formEditarPlano.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+    if (!planoSendoEditadoId) return;
+
+    const nome = inputEditarPlanoNome.value.trim();
+    const valor = converterMoedaParaNumero(inputEditarPlanoValor.value);
+    const taxa = parseFloat(inputEditarPlanoTaxa.value);
+    const parcelas = parseInt(inputEditarPlanoParcelas.value);
+
+    if (isNaN(valor) || valor < 0) {
+        alert('Informe um valor válido para o plano (Ex: R$ 1.100,00).');
+        inputEditarPlanoValor.focus();
+        return;
+    }
+
+    try {
+        const resp = await requisicaoAPI(`/planos/${planoSendoEditadoId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ nome, valor, taxa, parcelas })
+        });
+        fecharModalEditarPlano();
+        await carregarTodosOsDados();
+        alert(resp.mensagem || 'Plano atualizado com sucesso!');
+    } catch (erro) {
+        alert(erro.message);
+    }
 });
 
 function preencherValorDoPlanoSelecionado() {
@@ -900,12 +962,24 @@ function atualizarPlanosNaTela() {
         tdParcelas.textContent = `${plano.parcelas}x`;
 
         const tdAcao = document.createElement('td');
+        tdAcao.className = 'acoes-cell';
+
+        const btnEditar = document.createElement('button');
+        btnEditar.className = 'btn-extrato';
+        btnEditar.style.backgroundColor = '#FEF3C7';
+        btnEditar.style.color = '#92400E';
+        btnEditar.textContent = 'Editar';
+        btnEditar.title = 'Editar nome, valor, taxa ou parcelas deste plano';
+        btnEditar.onclick = () => abrirModalEditarPlano(plano);
+
         const btnExcluir = document.createElement('button');
         btnExcluir.className = 'btn-danger';
         btnExcluir.textContent = 'Excluir';
         btnExcluir.onclick = () => excluirPlano(plano.id);
 
+        tdAcao.appendChild(btnEditar);
         tdAcao.appendChild(btnExcluir);
+
         tr.appendChild(tdNome);
         tr.appendChild(tdValor);
         tr.appendChild(tdTaxa);
@@ -1272,7 +1346,7 @@ formRevisarTaxa.addEventListener('submit', async (evento) => {
 });
 
 // ==========================================
-// 5.3 GERADOR DE CONTRATO E DEMONSTRATIVO EM PDF (FORMAL)
+// 5.3 GERADOR DE CONTRATO E DEMONSTRATIVO EM PDF (PÁGINA ÚNICA)
 // ==========================================
 async function gerarContratoPDF(contrato) {
     if (!window.jspdf) {
@@ -1297,8 +1371,8 @@ async function gerarContratoPDF(contrato) {
     const quitado = pagas >= contrato.parcelas;
     const infoVencimento = calcularProximoVencimento(contrato.dataPrimeiroVencimento, pagas);
 
-    // Regra de multa: 10% sobre o valor liberado para planos de 12x ou 18x; 5% para o plano de 30 dias (1x) e demais
     const parcelasNum = Number(contrato.parcelas);
+    const duasColunas = parcelasNum > 10; // Mantém 12x e 18x confortavelmente em 1 única página A4
     const ehPlanoLongaDuracao = parcelasNum === 12 || parcelasNum === 18;
     const percentualMultaAtraso = ehPlanoLongaDuracao ? 10 : 5;
     const percentualMultaExtenso = ehPlanoLongaDuracao ? 'dez por cento' : 'cinco por cento';
@@ -1312,223 +1386,286 @@ async function gerarContratoPDF(contrato) {
         ? 'UNIFICADO EM NOVO INSTRUMENTO'
         : (quitado ? 'QUITADO INTEGRALMENTE' : (infoVencimento.atrasado ? 'INADIMPLENTE (EM ATRASO)' : 'REGULAR / EM DIA'));
 
+    // Cabeçalho
     doc.setFillColor(15, 23, 42);
-    doc.rect(0, 0, 210, 28, 'F');
+    doc.rect(0, 0, 210, 25, 'F');
 
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(15);
-    doc.text('CREDCONTROL — GESTÃO FINANCEIRA E CRÉDITO', 14, 12);
+    doc.setFontSize(14);
+    doc.text('CREDCONTROL — GESTÃO FINANCEIRA E CRÉDITO', 14, 11);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.text('INSTRUMENTO PARTICULAR DE CONFISSÃO DE DÍVIDA E MÚTUO FINANCEIRO', 14, 19);
-    doc.text('DOCUMENTO COM FORÇA DE TÍTULO EXECUTIVO EXTRAJUDICIAL', 14, 24);
+    doc.setFontSize(8);
+    doc.text('INSTRUMENTO PARTICULAR DE CONFISSÃO DE DÍVIDA E MÚTUO FINANCEIRO', 14, 17);
+    doc.text('DOCUMENTO COM FORÇA DE TÍTULO EXECUTIVO EXTRAJUDICIAL', 14, 21.5);
 
     doc.setFontSize(8.5);
     doc.setFont('helvetica', 'bold');
-    doc.text(`CONTRATO Nº #CTR-${String(contrato.id).padStart(4, '0')}`, 152, 12);
+    doc.text(`CONTRATO Nº #CTR-${String(contrato.id).padStart(4, '0')}`, 152, 11);
     doc.setFont('helvetica', 'normal');
-    doc.text(`Data de Emissão: ${new Date().toLocaleDateString('pt-BR')}`, 152, 18);
+    doc.text(`Data de Emissão: ${new Date().toLocaleDateString('pt-BR')}`, 152, 17);
+
+    let y = 32;
 
     // TÓPICO 1
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.text('1. QUALIFICAÇÃO DAS PARTES E IDENTIFICAÇÃO DO(A) CONTRATANTE', 14, 36);
-
+    doc.setFontSize(9.5);
+    doc.text('1. QUALIFICAÇÃO DAS PARTES E IDENTIFICAÇÃO DO(A) CONTRATANTE', 14, y);
     doc.setDrawColor(203, 213, 225);
-    doc.line(14, 38, 196, 38);
+    doc.line(14, y + 1.5, 196, y + 1.5);
+    y += 6.5;
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.text('CREDORA: CREDCONTROL ADMINISTRAÇÃO E GESTÃO DE CRÉDITO, doravante denominada simplesmente CREDORA.', 14, 43.5);
-    doc.text(`MUTUÁRIO(A) / CONTRATANTE: ${contrato.cliente}`, 14, 49);
-    doc.text(`CPF (Proteção de Dados - LGPD): ${mascararCPF(contrato.cpf)}`, 14, 54.5);
-    doc.text(`Contato Oficial (WhatsApp): ${formatarTelefone(contrato.whatsapp)}`, 115, 54.5);
+    doc.setFontSize(8.5);
+    doc.text('CREDORA: CREDCONTROL ADMINISTRAÇÃO E GESTÃO DE CRÉDITO, doravante denominada simplesmente CREDORA.', 14, y);
+    y += 4.8;
+    doc.text(`MUTUÁRIO(A) / CONTRATANTE: ${contrato.cliente}`, 14, y);
+    y += 4.8;
+    doc.text(`CPF (Proteção de Dados - LGPD): ${mascararCPF(contrato.cpf)}`, 14, y);
+    doc.text(`Contato Oficial (WhatsApp): ${formatarTelefone(contrato.whatsapp)}`, 115, y);
+    y += 4.8;
 
     const enderecoFormatado = formatarEnderecoCompleto(contrato);
     const linhasEndereco = doc.splitTextToSize(`Domicílio / Endereço Residencial: ${enderecoFormatado}`, 182);
-    doc.text(linhasEndereco, 14, 60);
-
-    const offsetEndereco = linhasEndereco.length > 1 ? 5 : 0;
+    doc.text(linhasEndereco, 14, y);
+    y += (linhasEndereco.length * 4.2) + 3.5;
 
     // TÓPICO 2
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.text('2. OBJETO E CONDIÇÕES FINANCEIRAS PACTUADAS', 14, 69 + offsetEndereco);
-    doc.line(14, 71 + offsetEndereco, 196, 71 + offsetEndereco);
+    doc.setFontSize(9.5);
+    doc.text('2. OBJETO E CONDIÇÕES FINANCEIRAS PACTUADAS', 14, y);
+    doc.line(14, y + 1.5, 196, y + 1.5);
+    y += 6.5;
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.text(`Modalidade / Plano Contratado: ${contrato.plano} — Taxa Remuneratória: ${contrato.taxa}% ao mês`, 14, 76.5 + offsetEndereco);
-    doc.text(`Valor Principal Liberado: ${formatarMoeda(contrato.valorBase)}`, 14, 82 + offsetEndereco);
-    doc.text(`Montante Total Pactuado: ${formatarMoeda(contrato.valorTotal)}`, 115, 82 + offsetEndereco);
-    doc.text(`Forma de Amortização: ${contrato.parcelas} parcela(s) mensal(is) e sucessiva(s) de ${formatarMoeda(contrato.valorParcela)} cada.`, 14, 87.5 + offsetEndereco);
+    doc.setFontSize(8.5);
+    doc.text(`Modalidade / Plano Contratado: ${contrato.plano} — Taxa Remuneratória: ${contrato.taxa}% ao mês`, 14, y);
+    y += 4.8;
+    doc.text(`Valor Principal Liberado: ${formatarMoeda(contrato.valorBase)}`, 14, y);
+    doc.text(`Montante Total Pactuado: ${formatarMoeda(contrato.valorTotal)}`, 115, y);
+    y += 4.8;
+    doc.text(`Forma de Amortização: ${contrato.parcelas} parcela(s) mensal(is) e sucessiva(s) de ${formatarMoeda(contrato.valorParcela)} cada.`, 14, y);
+    y += 4.5;
 
-    let offsetObs = 0;
     if (contrato.observacao) {
-        doc.setFontSize(8.5);
+        doc.setFontSize(8);
         doc.setTextColor(37, 99, 235);
         const linhasObs = doc.splitTextToSize(`Registro de Novação / Observação: ${contrato.observacao}`, 182);
-        doc.text(linhasObs, 14, 92.5 + offsetEndereco);
+        doc.text(linhasObs, 14, y);
         doc.setTextColor(15, 23, 42);
-        offsetObs = linhasObs.length * 4.5;
+        y += (linhasObs.length * 3.8) + 1.5;
     }
+
+    y += 2;
 
     // TÓPICO 3
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.text('3. DEMONSTRATIVO DE AMORTIZAÇÃO E CRONOGRAMA DE VENCIMENTOS', 14, 97 + offsetEndereco + offsetObs);
-    doc.line(14, 99 + offsetEndereco + offsetObs, 196, 99 + offsetEndereco + offsetObs);
+    doc.setFontSize(9.5);
+    doc.text('3. DEMONSTRATIVO DE AMORTIZAÇÃO E CRONOGRAMA DE VENCIMENTOS', 14, y);
+    doc.line(14, y + 1.5, 196, y + 1.5);
+    y += 4;
 
     doc.setFillColor(248, 250, 252);
-    doc.rect(14, 102 + offsetEndereco + offsetObs, 182, 20, 'F');
+    doc.rect(14, y, 182, 17, 'F');
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.text(`Parcelas Quitadas: ${pagas} de ${contrato.parcelas} (${formatarMoeda(valorJaPago)})`, 18, 108 + offsetEndereco + offsetObs);
-    doc.text(`Parcelas Vincendas: ${Math.max(0, contrato.parcelas - pagas)} parcela(s)`, 125, 108 + offsetEndereco + offsetObs);
-
-    doc.setFont('helvetica', 'bold');
-    doc.text(`Saldo Devedor Atualizado: ${ehUnificado ? 'R$ 0,00 (Transferido via Unificação)' : formatarMoeda(saldoRestante)}`, 18, 114 + offsetEndereco + offsetObs);
-    doc.text(`Status Contratual: ${statusTexto}`, 125, 114 + offsetEndereco + offsetObs);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Próximo Vencimento Previsto: ${ehUnificado || quitado ? 'Não aplicável (Encerrado)' : infoVencimento.dataFormatada}`, 18, 119.5 + offsetEndereco + offsetObs);
-
-    let y = 130 + offsetEndereco + offsetObs;
-
-    doc.setFillColor(226, 232, 240);
-    doc.rect(14, y - 4.5, 182, 6.5, 'F');
-    doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
-    doc.setTextColor(15, 23, 42);
-    doc.text('PARCELA', 18, y);
-    doc.text('VALOR NOMINAL', 52, y);
-    doc.text('DATA DE VENCIMENTO / QUITAÇÃO', 95, y);
-    doc.text('SITUAÇÃO', 165, y);
+    doc.text(`Parcelas Quitadas: ${pagas} de ${contrato.parcelas} (${formatarMoeda(valorJaPago)})`, 18, y + 5);
+    doc.text(`Parcelas Vincendas: ${Math.max(0, contrato.parcelas - pagas)} parcela(s)`, 125, y + 5);
 
-    y += 6;
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Saldo Devedor Atualizado: ${ehUnificado ? 'R$ 0,00 (Transferido via Unificação)' : formatarMoeda(saldoRestante)}`, 18, y + 10);
+    doc.text(`Status Contratual: ${statusTexto}`, 125, y + 10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Próximo Vencimento Previsto: ${ehUnificado || quitado ? 'Não aplicável (Encerrado)' : infoVencimento.dataFormatada}`, 18, y + 15);
 
-    for (let i = 1; i <= contrato.parcelas; i++) {
-        if (y > 272) {
-            doc.addPage();
-            y = 18;
+    y += 23;
+
+    // Cronograma de Parcelas (2 colunas para > 10 parcelas; 1 coluna para <= 10)
+    if (duasColunas) {
+        const metade = Math.ceil(parcelasNum / 2);
+
+        // Cabeçalhos das duas colunas
+        doc.setFillColor(226, 232, 240);
+        doc.rect(14, y - 3.8, 89, 5.5, 'F');
+        doc.rect(107, y - 3.8, 89, 5.5, 'F');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(15, 23, 42);
+
+        [14, 107].forEach((xBase) => {
+            doc.text('PARC.', xBase + 2, y);
+            doc.text('VALOR', xBase + 17, y);
+            doc.text('VENC. / PGTO', xBase + 40, y);
+            doc.text('STATUS', xBase + 71, y);
+        });
+
+        y += 5;
+        doc.setFontSize(7.4);
+
+        for (let row = 0; row < metade; row++) {
+            const indices = [row + 1, row + 1 + metade];
+
+            indices.forEach((idxParcela, colIndex) => {
+                if (idxParcela > parcelasNum) return;
+                const xBase = colIndex === 0 ? 14 : 107;
+                const foiPaga = idxParcela <= pagas;
+
+                if (foiPaga) {
+                    const registroPago = historicoPagamentos.find(p => p.numeroParcela === idxParcela);
+                    const dataCurta = registroPago ? formatarDataHoraSQLite(registroPago.dataPagamento).split(' ')[0] : 'Confirmada';
+
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(6, 95, 70);
+                    doc.text(`${idxParcela}ª/${parcelasNum}`, xBase + 2, y);
+                    doc.text(formatarMoeda(contrato.valorParcela), xBase + 17, y);
+                    doc.text(dataCurta, xBase + 40, y);
+                    doc.setFont('helvetica', 'bold');
+                    doc.text('Quitada', xBase + 71, y);
+                } else {
+                    const vencParcela = calcularProximoVencimento(contrato.dataPrimeiroVencimento, idxParcela - 1);
+                    const statusParcela = ehUnificado ? 'Unificada' : (vencParcela.atrasado ? 'Atrasado' : 'A Vencer');
+
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(vencParcela.atrasado && !ehUnificado ? 185 : 30, vencParcela.atrasado && !ehUnificado ? 28 : 41, vencParcela.atrasado && !ehUnificado ? 28 : 59);
+                    doc.text(`${idxParcela}ª/${parcelasNum}`, xBase + 2, y);
+                    doc.text(formatarMoeda(contrato.valorParcela), xBase + 17, y);
+                    doc.text(vencParcela.dataFormatada, xBase + 40, y);
+                    doc.setFont('helvetica', 'bold');
+                    doc.text(statusParcela, xBase + 71, y);
+                }
+            });
+
+            doc.setDrawColor(241, 245, 249);
+            doc.line(14, y + 1.2, 103, y + 1.2);
+            doc.line(107, y + 1.2, 196, y + 1.2);
+            y += 4.3;
         }
-
-        const foiPaga = i <= pagas;
-
-        if (foiPaga) {
-            const registroPago = historicoPagamentos.find(p => p.numeroParcela === i);
-            const dataPgtoTexto = registroPago
-                ? `Quitada em ${formatarDataHoraSQLite(registroPago.dataPagamento)}`
-                : 'Quitação Confirmada';
-
-            doc.setFont('helvetica', 'normal');
-            doc.setTextColor(6, 95, 70);
-            doc.text(`${i}ª de ${contrato.parcelas}`, 18, y);
-            doc.text(formatarMoeda(contrato.valorParcela), 52, y);
-            doc.text(dataPgtoTexto, 95, y);
-            doc.setFont('helvetica', 'bold');
-            doc.text('Quitada', 165, y);
-        } else {
-            const vencParcela = calcularProximoVencimento(contrato.dataPrimeiroVencimento, i - 1);
-            const statusParcela = ehUnificado ? 'Unificada' : (vencParcela.atrasado ? 'Em Atraso' : 'A Vencer');
-
-            doc.setFont('helvetica', 'normal');
-            doc.setTextColor(vencParcela.atrasado && !ehUnificado ? 185 : 30, vencParcela.atrasado && !ehUnificado ? 28 : 41, vencParcela.atrasado && !ehUnificado ? 28 : 59);
-            doc.text(`${i}ª de ${contrato.parcelas}`, 18, y);
-            doc.text(formatarMoeda(contrato.valorParcela), 52, y);
-            doc.text(`Vencimento em ${vencParcela.dataFormatada}`, 95, y);
-            doc.setFont('helvetica', 'bold');
-            doc.text(statusParcela, 165, y);
-        }
-
-        doc.setDrawColor(241, 245, 249);
-        doc.line(14, y + 1.5, 196, y + 1.5);
-        y += 5.5;
-    }
-
-    if (y > 175) {
-        doc.addPage();
-        y = 18;
     } else {
-        y += 6;
+        doc.setFillColor(226, 232, 240);
+        doc.rect(14, y - 4.2, 182, 6, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.2);
+        doc.setTextColor(15, 23, 42);
+        doc.text('PARCELA', 18, y);
+        doc.text('VALOR NOMINAL', 52, y);
+        doc.text('DATA DE VENCIMENTO / QUITAÇÃO', 95, y);
+        doc.text('SITUAÇÃO', 165, y);
+
+        y += 5.5;
+        doc.setFontSize(8.2);
+
+        for (let i = 1; i <= parcelasNum; i++) {
+            const foiPaga = i <= pagas;
+
+            if (foiPaga) {
+                const registroPago = historicoPagamentos.find(p => p.numeroParcela === i);
+                const dataPgtoTexto = registroPago
+                    ? `Quitada em ${formatarDataHoraSQLite(registroPago.dataPagamento)}`
+                    : 'Quitação Confirmada';
+
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(6, 95, 70);
+                doc.text(`${i}ª de ${parcelasNum}`, 18, y);
+                doc.text(formatarMoeda(contrato.valorParcela), 52, y);
+                doc.text(dataPgtoTexto, 95, y);
+                doc.setFont('helvetica', 'bold');
+                doc.text('Quitada', 165, y);
+            } else {
+                const vencParcela = calcularProximoVencimento(contrato.dataPrimeiroVencimento, i - 1);
+                const statusParcela = ehUnificado ? 'Unificada' : (vencParcela.atrasado ? 'Em Atraso' : 'A Vencer');
+
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(vencParcela.atrasado && !ehUnificado ? 185 : 30, vencParcela.atrasado && !ehUnificado ? 28 : 41, vencParcela.atrasado && !ehUnificado ? 28 : 59);
+                doc.text(`${i}ª de ${parcelasNum}`, 18, y);
+                doc.text(formatarMoeda(contrato.valorParcela), 52, y);
+                doc.text(`Vencimento em ${vencParcela.dataFormatada}`, 95, y);
+                doc.setFont('helvetica', 'bold');
+                doc.text(statusParcela, 165, y);
+            }
+
+            doc.setDrawColor(241, 245, 249);
+            doc.line(14, y + 1.4, 196, y + 1.4);
+            y += 5;
+        }
     }
+
+    y += 5;
 
     // TÓPICO 4 — REGRAS DE ATRASO E MULTAS (30 DIAS 1X, 12X E 18X)
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
     doc.text('4. CONDIÇÕES E ENCARGOS POR INADIMPLEMENTO (ATRASO E MULTAS)', 14, y);
     doc.setDrawColor(203, 213, 225);
-    doc.line(14, y + 2, 196, y + 2);
-    y += 7;
+    doc.line(14, y + 1.5, 196, y + 1.5);
+    y += 6;
 
     doc.setFillColor(254, 242, 242);
-    doc.rect(14, y - 4, 182, 41, 'F');
+    doc.rect(14, y - 3.5, 182, 34, 'F');
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.3);
+    doc.setFontSize(7.8);
     doc.setTextColor(30, 41, 59);
 
     const textoAtrasoPrincipal = `O pontual cumprimento das obrigações nas datas estipuladas constitui condição essencial deste instrumento. Para este contrato (${contrato.parcelas}x), em caso de atraso no pagamento, incidirá multa moratória irretratável de ${percentualMultaAtraso}% (${percentualMultaExtenso}) sobre o valor liberado (${formatarMoeda(valorMultaAplicada)}), acrescida de juros moratórios de 2% ao dia (${formatarMoeda(valorJurosDiarioAtraso)}/dia) até a efetiva quitação, conforme tabela contratual por modalidade:`;
     const linhasAtraso = doc.splitTextToSize(textoAtrasoPrincipal, 176);
     doc.text(linhasAtraso, 17, y);
 
-    let yTabelaMulta = y + (linhasAtraso.length * 4) + 2;
+    let yTabelaMulta = y + (linhasAtraso.length * 3.5) + 1.5;
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.2);
+    doc.setFontSize(7.7);
     doc.setTextColor(153, 27, 27);
     doc.text(`• Modalidade 30 Dias (1x): Multa de 5% sobre o valor liberado (${formatarMoeda(valorMulta5)}) + Juros de 2% ao dia (${formatarMoeda(valorJurosDiarioAtraso)}/dia) até a quitação.`, 17, yTabelaMulta);
-    yTabelaMulta += 4.8;
+    yTabelaMulta += 4.2;
     doc.text(`• Modalidade Parcelada 12x: Multa de 10% sobre o valor liberado (${formatarMoeda(valorMulta10)}) + Juros de 2% ao dia (${formatarMoeda(valorJurosDiarioAtraso)}/dia) até a quitação.`, 17, yTabelaMulta);
-    yTabelaMulta += 4.8;
+    yTabelaMulta += 4.2;
     doc.text(`• Modalidade Parcelada 18x: Multa de 10% sobre o valor liberado (${formatarMoeda(valorMulta10)}) + Juros de 2% ao dia (${formatarMoeda(valorJurosDiarioAtraso)}/dia) até a quitação.`, 17, yTabelaMulta);
 
-    y += 43;
+    y += 35.5;
 
     // TÓPICO 5
-    if (y > 235) {
-        doc.addPage();
-        y = 18;
-    }
-
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
     doc.text('5. DISPOSIÇÕES GERAIS, TERMOS E CONCORDÂNCIA', 14, y);
-    doc.line(14, y + 2, 196, y + 2);
-    y += 7;
+    doc.line(14, y + 1.5, 196, y + 1.5);
+    y += 6;
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
+    doc.setFontSize(7.8);
     doc.setTextColor(30, 41, 59);
     const termo = 'O(A) CONTRATANTE declara ter lido, compreendido e aceito integralmente todas as cláusulas e condições financeiras estabelecidas neste instrumento, reconhecendo a liquidez, certeza e exigibilidade da obrigação ora assumida, comprometendo-se a honrar rigorosamente os pagamentos pactuados sob pena da incidência dos encargos previstos na Cláusula 4ª e demais medidas legais cabíveis.';
     const linhasTermo = doc.splitTextToSize(termo, 182);
     doc.text(linhasTermo, 14, y);
 
-    y += 24;
+    y += (linhasTermo.length * 3.6) + 12;
+
+    // Assinaturas
     doc.setDrawColor(100, 116, 139);
     doc.line(20, y, 95, y);
     doc.setFont('helvetica', 'bold');
-    doc.text('CREDCONTROL — ADMINISTRAÇÃO', 31, y + 4.5);
+    doc.setFontSize(8);
+    doc.text('CREDCONTROL — ADMINISTRAÇÃO', 31, y + 4);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.text('Credora / Gestão de Crédito', 40, y + 8.5);
+    doc.setFontSize(7.2);
+    doc.text('Credora / Gestão de Crédito', 40, y + 7.5);
 
-    doc.setFontSize(8.5);
+    doc.setFontSize(8);
     doc.line(115, y, 190, y);
     doc.setFont('helvetica', 'bold');
-    doc.text(`${contrato.cliente}`, 120, y + 4.5);
+    doc.text(`${contrato.cliente}`, 120, y + 4);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.text(`Contratante • CPF: ${mascararCPF(contrato.cpf)}`, 120, y + 8.5);
+    doc.setFontSize(7.2);
+    doc.text(`Contratante • CPF: ${mascararCPF(contrato.cpf)}`, 120, y + 7.5);
 
-    doc.setFontSize(7.5);
+    doc.setFontSize(7.2);
     doc.setTextColor(100, 116, 139);
-    doc.text('Instrumento emitido eletronicamente pelo sistema CredControl • Compromisso, transparência e segurança jurídica.', 14, 288);
+    doc.text('Instrumento emitido eletronicamente pelo sistema CredControl • Compromisso, transparência e segurança jurídica.', 14, 289);
 
     const nomeArquivo = `Contrato_${contrato.cliente.replace(/\s+/g, '_')}_CTR${contrato.id}.pdf`;
     doc.save(nomeArquivo);

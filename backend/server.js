@@ -406,6 +406,43 @@ app.post('/api/planos', autenticarToken, async (req, res) => {
     }
 });
 
+app.put('/api/planos/:id', autenticarToken, async (req, res) => {
+    const id = parseInt(req.params.id);
+    const { nome, valor, taxa, parcelas } = req.body;
+    const nomeLimpo = String(nome || '').trim();
+    const valorNum = parseFloat(valor);
+    const taxaNum = parseFloat(taxa);
+    const parcelasNum = parseInt(parcelas);
+
+    if (
+        isNaN(id) ||
+        !/^[A-Za-zÀ-ÖØ-öø-ÿ0-9\s\-]{3,40}$/.test(nomeLimpo) ||
+        isNaN(valorNum) || valorNum < 0 ||
+        isNaN(taxaNum) || taxaNum < 0 ||
+        isNaN(parcelasNum) || parcelasNum < 1
+    ) {
+        return res.status(400).json({ erro: 'Dados do plano inválidos para atualização.' });
+    }
+
+    try {
+        const result = await pool.query(
+            `UPDATE planos 
+             SET nome = $1, valor = $2, taxa = $3, parcelas = $4 
+             WHERE id = $5 
+             RETURNING id, nome, valor::float, taxa::float, parcelas`,
+            [nomeLimpo, valorNum, taxaNum, parcelasNum, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ erro: 'Plano não encontrado.' });
+        }
+
+        res.json({ mensagem: 'Plano atualizado com sucesso!', plano: result.rows[0] });
+    } catch (err) {
+        res.status(500).json({ erro: 'Erro ao atualizar plano.' });
+    }
+});
+
 app.delete('/api/planos/:id', autenticarToken, async (req, res) => {
     const id = parseInt(req.params.id);
     try {
@@ -552,7 +589,6 @@ app.post('/api/contratos', autenticarToken, async (req, res) => {
             const saldoCapitalAnterior = parcelasRestantes * capitalPorParcela;
             const saldoTotalAnterior = parcelasRestantes * contratoConflitante.valorParcela;
 
-            // Regra de unificação: soma dos capitais + soma das taxas (anterior + novo plano)
             const taxaAnterior = Number(contratoConflitante.taxaAplicada || 0);
             const taxaNovoPlano = Number(plano.taxa || 0);
             const taxaUnificada = Number((taxaAnterior + taxaNovoPlano).toFixed(2));
