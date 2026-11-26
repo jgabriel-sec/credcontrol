@@ -1297,12 +1297,15 @@ async function gerarContratoPDF(contrato) {
     const quitado = pagas >= contrato.parcelas;
     const infoVencimento = calcularProximoVencimento(contrato.dataPrimeiroVencimento, pagas);
 
-    // Regra de multa: 10% sobre o valor liberado para planos de 12x ou 18x; 5% para os demais
-    const ehPlanoLongaDuracao = Number(contrato.parcelas) === 12 || Number(contrato.parcelas) === 18;
+    // Regra de multa: 10% sobre o valor liberado para planos de 12x ou 18x; 5% para o plano de 30 dias (1x) e demais
+    const parcelasNum = Number(contrato.parcelas);
+    const ehPlanoLongaDuracao = parcelasNum === 12 || parcelasNum === 18;
     const percentualMultaAtraso = ehPlanoLongaDuracao ? 10 : 5;
     const percentualMultaExtenso = ehPlanoLongaDuracao ? 'dez por cento' : 'cinco por cento';
 
-    const valorMultaAtraso = contrato.valorBase * (percentualMultaAtraso / 100);
+    const valorMulta5 = contrato.valorBase * 0.05;
+    const valorMulta10 = contrato.valorBase * 0.10;
+    const valorMultaAplicada = contrato.valorBase * (percentualMultaAtraso / 100);
     const valorJurosDiarioAtraso = contrato.valorBase * 0.02;
 
     const statusTexto = ehUnificado
@@ -1359,7 +1362,7 @@ async function gerarContratoPDF(contrato) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.text(`Modalidade / Plano Contratado: ${contrato.plano} — Taxa Remuneratória: ${contrato.taxa}% ao mês`, 14, 76.5 + offsetEndereco);
-    doc.text(`Valor Principal Emprestado: ${formatarMoeda(contrato.valorBase)}`, 14, 82 + offsetEndereco);
+    doc.text(`Valor Principal Liberado: ${formatarMoeda(contrato.valorBase)}`, 14, 82 + offsetEndereco);
     doc.text(`Montante Total Pactuado: ${formatarMoeda(contrato.valorTotal)}`, 115, 82 + offsetEndereco);
     doc.text(`Forma de Amortização: ${contrato.parcelas} parcela(s) mensal(is) e sucessiva(s) de ${formatarMoeda(contrato.valorParcela)} cada.`, 14, 87.5 + offsetEndereco);
 
@@ -1446,34 +1449,45 @@ async function gerarContratoPDF(contrato) {
         y += 5.5;
     }
 
-    if (y > 195) {
+    if (y > 175) {
         doc.addPage();
         y = 18;
     } else {
         y += 6;
     }
 
-    // TÓPICO 4
+    // TÓPICO 4 — REGRAS DE ATRASO E MULTAS (30 DIAS 1X, 12X E 18X)
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
-    doc.text('4. CONDIÇÕES E ENCARGOS POR INADIMPLEMENTO (ATRASO)', 14, y);
+    doc.text('4. CONDIÇÕES E ENCARGOS POR INADIMPLEMENTO (ATRASO E MULTAS)', 14, y);
     doc.setDrawColor(203, 213, 225);
     doc.line(14, y + 2, 196, y + 2);
     y += 7;
 
     doc.setFillColor(254, 242, 242);
-    doc.rect(14, y - 4, 182, 22, 'F');
+    doc.rect(14, y - 4, 182, 41, 'F');
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
+    doc.setFontSize(8.3);
     doc.setTextColor(30, 41, 59);
 
-    const textoAtraso = `O pontual cumprimento das obrigações nas datas estipuladas constitui condição essencial deste instrumento. Em caso de impontualidade ou atraso no pagamento de qualquer parcela, incidirão automaticamente sobre o débito: (a) Multa moratória irretratável de ${percentualMultaAtraso}% (${percentualMultaExtenso}) calculada sobre o valor emprestado/liberado (${formatarMoeda(valorMultaAtraso)}); acrescida de (b) Juros moratórios de 2% (dois por cento) ao dia sobre o valor emprestado (${formatarMoeda(valorJurosDiarioAtraso)} por dia de atraso), computados desde a data do vencimento até a efetiva e integral quitação da obrigação.`;
-    const linhasAtraso = doc.splitTextToSize(textoAtraso, 176);
+    const textoAtrasoPrincipal = `O pontual cumprimento das obrigações nas datas estipuladas constitui condição essencial deste instrumento. Para este contrato (${contrato.parcelas}x), em caso de atraso no pagamento, incidirá multa moratória irretratável de ${percentualMultaAtraso}% (${percentualMultaExtenso}) sobre o valor liberado (${formatarMoeda(valorMultaAplicada)}), acrescida de juros moratórios de 2% ao dia (${formatarMoeda(valorJurosDiarioAtraso)}/dia) até a efetiva quitação, conforme tabela contratual por modalidade:`;
+    const linhasAtraso = doc.splitTextToSize(textoAtrasoPrincipal, 176);
     doc.text(linhasAtraso, 17, y);
 
-    y += 24;
+    let yTabelaMulta = y + (linhasAtraso.length * 4) + 2;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.2);
+    doc.setTextColor(153, 27, 27);
+    doc.text(`• Modalidade 30 Dias (1x): Multa de 5% sobre o valor liberado (${formatarMoeda(valorMulta5)}) + Juros de 2% ao dia (${formatarMoeda(valorJurosDiarioAtraso)}/dia) até a quitação.`, 17, yTabelaMulta);
+    yTabelaMulta += 4.8;
+    doc.text(`• Modalidade Parcelada 12x: Multa de 10% sobre o valor liberado (${formatarMoeda(valorMulta10)}) + Juros de 2% ao dia (${formatarMoeda(valorJurosDiarioAtraso)}/dia) até a quitação.`, 17, yTabelaMulta);
+    yTabelaMulta += 4.8;
+    doc.text(`• Modalidade Parcelada 18x: Multa de 10% sobre o valor liberado (${formatarMoeda(valorMulta10)}) + Juros de 2% ao dia (${formatarMoeda(valorJurosDiarioAtraso)}/dia) até a quitação.`, 17, yTabelaMulta);
+
+    y += 43;
 
     // TÓPICO 5
     if (y > 235) {
